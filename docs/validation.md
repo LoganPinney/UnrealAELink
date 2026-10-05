@@ -41,7 +41,8 @@ Install a version of .NET Framework SDK at 4.6.0 or higher.
 This dependency belongs to Unreal's editor, not the bridge. .NET Framework 4.8
 SDK/targeting-pack installation was attempted. The installer returned 1602;
 its log reports that the user may have declined the Windows administrator
-prompt. A follow-up installation prompt was opened and approval requested.
+prompt. A follow-up installation prompt was opened and approval requested; it
+also timed out/cancelled with 1602. The SDK is still missing.
 
 **The Unreal DLL has not yet compiled successfully. The editor camera acceptance
 test has not run. Milestone zero is therefore not yet accepted.**

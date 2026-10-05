@@ -14,7 +14,9 @@ Inspected on October 5, 2026:
   2022 17.14.41, MSVC compiler 19.44.35229 (toolset directory 14.44.35207),
   Windows SDK 10.0.22621.0 and CMake 3.31.6.
 - Unreal's SwarmInterface also requires .NET Framework SDK 4.6+; install the
-  .NET Framework 4.8 SDK and targeting pack.
+  .NET Framework 4.8 SDK and targeting pack. Both automated attempts to add
+  this component were cancelled at the Windows administrator prompt; it is
+  still missing, and currently blocks the Unreal build.
 - No AE application/SDK was found in the scoped locations checked. See
   `AfterEffectsPlugin/UnrealAELink/README.md` for the missing development inputs.
 
@@ -41,6 +43,11 @@ Component IDs and installer options are documented by
 The installed engine's `Engine/Config/Windows/Windows_SDK.json` contains its
 toolchain constraints; the numeric compiler version matters more than the
 toolset directory name. Do not force a compiler version banned by the engine.
+
+To clear this machine's current blocker: open **Visual Studio Installer**, find
+**Build Tools 2022**, choose **Modify -> Individual components**, select
+**.NET Framework 4.8 SDK** and **.NET Framework 4.8 targeting pack**, apply the
+change and approve Windows' administrator prompt. Then rerun BuildUnreal.ps1.
 
 ## Build both projects
 
