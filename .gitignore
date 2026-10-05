@@ -1,0 +1,10 @@
+Binaries/
+Intermediate/
+Saved/
+.vs/
+build/
+artifacts/
+*.sln
+*.vcxproj*
+*.suo
+*.pdb

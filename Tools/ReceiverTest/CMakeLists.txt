@@ -1,0 +1,5 @@
+add_executable(ReceiverTest main.cpp)
+target_link_libraries(ReceiverTest PRIVATE UnrealAELinkIPC)
+if(MSVC)
+    target_compile_options(ReceiverTest PRIVATE /W4 /WX /permissive-)
+endif()

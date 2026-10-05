@@ -1,0 +1,9 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Category": "Tests",
+  "Description": "Isolated milestone zero test host; no existing project is modified.",
+  "AdditionalPluginDirectories": ["../../UnrealPlugin"],
+  "Modules": [{ "Name": "UnrealAELinkTest", "Type": "Runtime", "LoadingPhase": "Default" }],
+  "Plugins": [{ "Name": "UnrealAELink", "Enabled": true }]
+}

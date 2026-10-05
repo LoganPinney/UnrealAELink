@@ -1,0 +1,14 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1.0",
+  "FriendlyName": "Unreal AE Link",
+  "Description": "Milestone zero: camera metadata to a native Windows receiver.",
+  "Category": "Virtual Production",
+  "CreatedBy": "UnrealAELink",
+  "CanContainContent": false,
+  "SupportedTargetPlatforms": ["Win64"],
+  "Modules": [
+    { "Name": "UnrealAELink", "Type": "Runtime", "LoadingPhase": "PostEngineInit", "PlatformAllowList": ["Win64"] }
+  ]
+}
