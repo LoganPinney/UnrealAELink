@@ -80,8 +80,7 @@ numbers, and camera position, rotation, FOV, and aspect data in the native conso
 (including frame 4280 / sequence 4281). Milestone zero is accepted in manual use.
 
 PIE/Game camera selection and packaged game targets have not been separately
-tested. No AE/image path is claimed. Work remains stopped at milestone zero
-until the next milestone is explicitly authorized.
+tested. Those acceptance results were limited to milestone-zero metadata.
 
 ## Environment fixes
 
@@ -98,6 +97,22 @@ from a Windows PowerShell 5.1 process explicitly set to `Restricted`, and its
 build/tests passed. The Unreal build and camera acceptance also ran through the
 launchers. No persistent execution policy setting was changed.
 
-No existing Unreal project or Adobe installation file was modified. After Effects
-and its SDK were not found in the scoped inspected locations. No work beyond
-metadata milestone zero was implemented.
+No existing Unreal project or Adobe installation file was modified during
+milestone zero. Initial scoped discovery did not find Adobe.
+
+## Authorized follow-on work
+
+The user authorized GPU frame transfer followed by Adobe components. The GPU
+spike compiled and passed actual Unreal/native receiver acceptance; see
+[Beauty validation](beauty.md). Its milestone commit is c27975b.
+
+The user supplied the installed After Effects path (file version 26.5) and official
+SDK 26.5 archive. A native .aex built successfully; three native CTest groups and
+the Adobe SDK pixel-world renderer tests passed. Details are in the
+[Adobe setup guide](../AfterEffectsPlugin/UnrealAELink/README.md).
+
+Windows denied installation into Program Files and administrator elevation was
+cancelled. No plugin was installed and actual Adobe loading/rendering has not
+been tested. A bounded isolated host harness is ready for after the copy succeeds.
+The user's existing DefaultEngine.ini changes were preserved and excluded from
+the follow-on commits.

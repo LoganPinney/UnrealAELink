@@ -7,9 +7,12 @@
 #include "Engine/PointLight.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
+#include "HAL/IConsoleManager.h"
 
 namespace
 {
+TAutoConsoleVariable<float> TestSceneSeconds(TEXT("UnrealAELink.TestSceneSeconds"), 12.0f,
+    TEXT("Duration of the transient Beauty automation fixture"));
 class FBeautySceneForReceiver final : public IAutomationLatentCommand
 {
 public:
@@ -37,9 +40,10 @@ public:
                 Light->PointLightComponent->SetAttenuationRadius(2000.0f);
             }
             Begin = FPlatformTime::Seconds();
+            UE_LOG(LogTemp, Display, TEXT("UnrealAELink test scene ready"));
         }
         const double Elapsed = FPlatformTime::Seconds() - Begin;
-        if (Elapsed >= 12.0)
+        if (Elapsed >= TestSceneSeconds.GetValueOnGameThread())
         {
             Client->SetViewLocation(Location); Client->SetViewRotation(Rotation);
             Client->ViewFOV = FOV; Client->FOVAngle = FOVAngle; Client->Invalidate();

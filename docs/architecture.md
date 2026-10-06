@@ -26,7 +26,7 @@ views publishes a no-camera sample rather than repeating an old valid camera.
 it into a static library for native tools. A tiny Unreal compilation unit includes
 the same implementation, with Unreal's Windows header wrapper. `Build.cs` tracks
 the external shared sources as dependencies. Unreal-only APIs remain inside
-`UnrealPlugin/`. `AfterEffectsPlugin/` is a documented empty reservation.
+`UnrealPlugin/`. Adobe development is described in the current-state section below.
 
 Windows handles and mapped views use RAII. Producer game-thread publication does
 not wait for the receiver; a missing or dead peer only changes connection state.
@@ -40,7 +40,17 @@ moves an actual level editor camera for eight seconds, restores it, and requires
 the separate receiver to report changing position/rotation/FOV. Both automated
 and manual tests use Unreal's normal renderer, so the viewport has pixel dimensions.
 
-There is no GPU texture sharing, image output, AE plugin, timeline sync or camera
-conversion in this milestone. After manual acceptance, the next proposed step is
-an explicitly authorized rendered-frame transfer spike, evaluating the installed
-Texture Share/DX12 capabilities. That work has not started.
+The paragraphs above describe the accepted metadata milestone.
+
+## Current extensions
+
+The subsequently authorized GPU spike is complete; see [Beauty transport](beauty.md).
+The engine follows the selected camera through a transient scene capture and
+copies into a three-slot DX12 shared-resource ring. A separate CPU control block
+contains named resources, fence values, ownership and per-frame camera metadata.
+
+The native Adobe effect is built against SDK 26.5. One background client per
+Adobe process provides immutable completed snapshots to render callbacks.
+See [Adobe setup and validation](../AfterEffectsPlugin/UnrealAELink/README.md).
+Host loading is pending administrator installation. No timeline sync or camera
+conversion/control is implemented.

@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include "UnrealAELink/GpuTransport.h"
+#include "FrameClient.h"
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -35,11 +36,51 @@ int Receive()
     return 1;
 }
 
+int ReceiveClient()
+{
+    FrameClient Client;
+    const auto Id = Client.Register(1); const auto Other = Client.Register(2);
+    unsigned Count = 0; std::uint64_t Previous = 0;
+    const auto Begin = GetTickCount64();
+    while (GetTickCount64() - Begin < 10000)
+    {
+        auto Frame = Client.Snapshot(Id, true, true);
+        if (Frame && Frame->Sequence != Previous)
+        {
+            Previous = Frame->Sequence;
+            const auto Red = static_cast<unsigned char>(Frame->Camera.FrameNumber);
+            for (std::size_t P = 0; P < Frame->Rgba.size(); P += 4)
+                Check(Frame->Rgba[P] == Red && Frame->Rgba[P+1] == 73 && Frame->Rgba[P+2] == 149 && Frame->Rgba[P+3] == 255,
+                    "Adobe worker snapshot is inconsistent");
+            if (++Count == 6)
+            {
+                Client.Snapshot(Other, true, true);
+                auto Frozen = Client.Snapshot(Id, true, false);
+                Check(bool(Frozen), "Freeze has a completed image");
+                Sleep(120);
+                Check(Client.Snapshot(Id, true, false) == Frozen, "Another live instance must not change a frozen snapshot");
+                Client.Remove(Other);
+                Client.Snapshot(Id, true, true);
+            }
+            if (Count >= 12)
+            {
+                Check(!Client.Snapshot(Id, false, true), "Disconnected instance must not return a frame");
+                Client.Remove(Id);
+                return 0;
+            }
+        }
+        Sleep(10);
+    }
+    return 1;
+}
+
 int main(int Argc, char** Argv)
 {
     try
     {
         if (Argc == 2 && !std::strcmp(Argv[1], "--receive")) return Receive();
+        if (Argc == 2 && !std::strcmp(Argv[1], "--receive-client")) return ReceiveClient();
+        const bool TestClient = Argc == 2 && !std::strcmp(Argv[1], "--client-test");
         ComPtr<ID3D12Device> Device; Hr(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&Device)));
         GpuProducer Producer; Check(Producer.Open(Device.Get()) == Result::Ok, "GPU producer open failed (close any running UE bridge)");
         GpuProducer Duplicate; Check(Duplicate.Open(Device.Get()) == Result::Busy, "Duplicate producer must fail");
@@ -60,7 +101,7 @@ int main(int Argc, char** Argv)
         ComPtr<ID3D12Resource> Upload;
         Hr(Device->CreateCommittedResource(&Heap, D3D12_HEAP_FLAG_NONE, &Buffer, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&Upload)));
         wchar_t Path[MAX_PATH]{}; Check(GetModuleFileNameW(nullptr, Path, MAX_PATH) != 0, "Executable path");
-        wchar_t Command[MAX_PATH + 32]{}; swprintf_s(Command, L"\"%s\" --receive", Path);
+        wchar_t Command[MAX_PATH + 32]{}; swprintf_s(Command, L"\"%s\" %s", Path, TestClient ? L"--receive-client" : L"--receive");
         STARTUPINFOW Startup{}; Startup.cb = sizeof(Startup); PROCESS_INFORMATION Child{};
         Check(CreateProcessW(nullptr, Command, nullptr, nullptr, 0, CREATE_NO_WINDOW, nullptr, nullptr, &Startup, &Child) != 0, "Child process");
         CloseHandle(Child.hThread);
@@ -126,6 +167,7 @@ int main(int Argc, char** Argv)
         Producer.Close();
         GpuConsumer Absent; Check(Absent.Open() != Result::Ok, "Closed producer should disconnect");
         std::puts("PASS: DX12 cross-process pixels/camera pairing, pitch, alpha, ownership, pinned-reader protection, restart, disconnect.");
+        if (TestClient) std::puts("PASS: Adobe worker thread, immutable snapshots, multiple subscribers, per-instance freeze/resume, disconnect.");
         return 0;
     }
     catch (const std::exception& E) { std::fprintf(stderr, "FAIL: %s\n", E.what()); return 1; }

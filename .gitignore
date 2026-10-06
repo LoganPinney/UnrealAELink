@@ -5,6 +5,7 @@ DerivedDataCache/
 Tests/UnrealAELinkTest/Config/DefaultInput.ini
 .vs/
 build/
+build-ae/
 artifacts/
 *.sln
 *.vcxproj*
