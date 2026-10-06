@@ -111,8 +111,21 @@ SDK 26.5 archive. A native .aex built successfully; three native CTest groups an
 the Adobe SDK pixel-world renderer tests passed. Details are in the
 [Adobe setup guide](../AfterEffectsPlugin/UnrealAELink/README.md).
 
-Windows denied installation into Program Files and administrator elevation was
-cancelled. No plugin was installed and actual Adobe loading/rendering has not
-been tested. A bounded isolated host harness is ready for after the copy succeeds.
+Initial installation into Program Files was denied and administrator elevation
+was cancelled. The user subsequently installed the plugin; diagnostic/fixed
+builds were updated with Windows administrator approval on October 6.
+
+Adobe 26.5 `-noui` startup reproduced exit 0xC0000409 with a minimal script that
+never applied the effect. Normal startup succeeded. The acceptance harness now
+uses normal startup with its window hidden, and synchronous render-queue TIFF
+output instead of the original ineffective `saveFrameToPng` calls. Host testing
+also exposed a missing `PF_OutFlag2_I_MIX_GUID_DEPENDENCIES` declaration; matching
+runtime/PiPL flags now allow GUID mixing and SmartFX rendering.
+
+Host-rendered Beauty images at ARGB32, ARGB64 and ARGB128, identical frozen-frame
+pixels, later resumed frames, half resolution (640x360), black disconnect output
+and a saved demo project have been verified. Native startup/sequence/teardown
+callbacks are recorded in `artifacts/ae-native.log`; TIFFs and PNG previews are
+under `artifacts/`. GUI, project reopen and longer sessions remain unverified.
 The user's existing DefaultEngine.ini changes were preserved and excluded from
 the follow-on commits.

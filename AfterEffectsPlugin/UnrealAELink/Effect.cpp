@@ -22,7 +22,7 @@ namespace
 {
 enum { Input, Connect, Live, Source, Status, FrameNumber, NumParams };
 constexpr PF_OutFlags Flags = PF_OutFlag_NON_PARAM_VARY | PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_SEND_UPDATE_PARAMS_UI;
-constexpr PF_OutFlags2 Flags2 = PF_OutFlag2_SUPPORTS_SMART_RENDER | PF_OutFlag2_FLOAT_COLOR_AWARE | PF_OutFlag2_REVEALS_ZERO_ALPHA;
+constexpr PF_OutFlags2 Flags2 = PF_OutFlag2_SUPPORTS_SMART_RENDER | PF_OutFlag2_FLOAT_COLOR_AWARE | PF_OutFlag2_REVEALS_ZERO_ALPHA | PF_OutFlag2_I_MIX_GUID_DEPENDENCIES;
 std::unique_ptr<UnrealAELink::FrameClient> Client;
 struct Sequence { std::uint64_t Id; };
 struct PreFrame { std::shared_ptr<const UnrealAELink::BeautyFrame> Image; };
@@ -126,17 +126,18 @@ PF_Err RenderWorld(PF_InData* In, PF_EffectWorld* Out, const UnrealAELink::Beaut
 
 PF_Err PreRender(PF_InData* in_data, PF_PreRenderExtra* Extra)
 {
+    Report("SMART_PRE_RENDER");
     PF_ParamDef C{}, L{};
     auto Error = PF_CHECKOUT_PARAM(in_data, Connect, in_data->current_time, in_data->time_step, in_data->time_scale, &C);
-    if (Error) return Error;
+    if (Error) { Report("CHECKOUT_CONNECT_ERROR"); return Error; }
     Error = PF_CHECKOUT_PARAM(in_data, Live, in_data->current_time, in_data->time_step, in_data->time_scale, &L);
-    if (Error) return Error;
+    if (Error) { Report("CHECKOUT_LIVE_ERROR"); return Error; }
     auto Data = std::make_unique<PreFrame>(); Data->Image = GetImage(in_data, C.u.bd.value != 0, L.u.bd.value != 0);
     const std::uint64_t Key[] = {Data->Image ? Data->Image->Session : 0, Data->Image ? Data->Image->Sequence : 0};
     if (Extra->cb->GuidMixInPtr)
     {
         Error = Extra->cb->GuidMixInPtr(in_data->effect_ref, sizeof(Key), Key);
-        if (Error) return Error;
+        if (Error) { Report("GUID_MIX_ERROR"); return Error; }
     }
     Extra->output->max_result_rect = {0, 0, in_data->width, in_data->height};
     auto Rect = Extra->input->output_request.rect;
@@ -168,6 +169,8 @@ PF_Err UpdateUI(PF_InData* In, PF_ParamDef* Params[])
 
 extern "C" DllExport PF_Err EffectMain(PF_Cmd Cmd, PF_InData* in_data, PF_OutData* out_data, PF_ParamDef* Params[], PF_LayerDef* Output, void* Extra)
 {
+    char Command[64]{};
+    std::snprintf(Command, sizeof(Command), "CALL command=%d", int(Cmd)); Report(Command);
     try
     {
         switch (Cmd)
@@ -205,8 +208,8 @@ extern "C" DllExport PF_Err EffectMain(PF_Cmd Cmd, PF_InData* in_data, PF_OutDat
         }
         return PF_Err_NONE;
     }
-    catch (const std::bad_alloc&) { return PF_Err_OUT_OF_MEMORY; }
-    catch (...) { return PF_Err_INTERNAL_STRUCT_DAMAGED; }
+    catch (const std::bad_alloc&) { Report("CALL_OUT_OF_MEMORY"); return PF_Err_OUT_OF_MEMORY; }
+    catch (...) { Report("CALL_EXCEPTION"); return PF_Err_INTERNAL_STRUCT_DAMAGED; }
 }
 
 extern "C" DllExport PF_Err PluginDataEntryFunction2(PF_PluginDataPtr In, PF_PluginDataCB2 Callback,

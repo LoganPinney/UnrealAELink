@@ -2,8 +2,8 @@
 
 Windows-only prototype: **Unreal camera metadata and 1280x720 Beauty -> native
 receiver**, verified on the locally detected Unreal Engine 5.8.3. A native Adobe
-effect is also built against SDK 26.5; Adobe host testing awaits administrator
-installation of its `.aex`. Camera metadata
+effect is built against SDK 26.5 and installed in After Effects 26.5. Its host
+test renders received Beauty at 8/16/32 bpc, freeze/resume and disconnect. Camera metadata
 uses named shared memory; rendered pixels use three named DX12 shared textures.
 
 ## Quick start
@@ -68,4 +68,4 @@ runtime results and remaining gaps are recorded in the validation documents.
 
 See [Beauty transport](docs/beauty.md) for the GPU contract, validation and limits.
 See [Adobe setup and validation](AfterEffectsPlugin/UnrealAELink/README.md) for the
-built effect and the pending host test.
+built effect and the host test.
