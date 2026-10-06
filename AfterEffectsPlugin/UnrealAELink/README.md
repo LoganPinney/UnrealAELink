@@ -23,14 +23,19 @@ global/sequence teardown releases subscriptions.
 
 ## Build and installation
 
-From the repository root, with the extracted official SDK:
+From the repository root:
 
 ```powershell
-.\Tools\BuildAfterEffects.cmd -SDKRoot "C:\path\to\AfterEffectsSDK_26.5_win"
+.\Tools\BuildAfterEffects.cmd
 ```
 
-The SDK root must contain Examples/Headers/AE_Effect.h. AE_SDK_ROOT can supply
-the path instead. The build also runs AdobeRenderTests against the SDK worlds.
+The launcher finds the previously configured SDK or the SDK extracted in this
+workspace at `../../work/AdobeSDK26_5/AfterEffectsSDK_26.5_win`. It prints the
+selected folder before building. For an SDK extracted elsewhere, pass
+`-SDKRoot` followed by its actual folder in quotes, or set `AE_SDK_ROOT`.
+An explicit path or environment setting takes precedence and must contain
+`Examples/Headers/AE_Effect.h`; the downloaded ZIP is not the SDK root.
+The build also runs AdobeRenderTests against the SDK worlds.
 The .cmd launcher sets script policy only for its child PowerShell 7 invocation.
 
 Close After Effects. In a terminal **running as Administrator**, from the

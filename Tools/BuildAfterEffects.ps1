@@ -2,9 +2,30 @@ param([string]$SDKRoot = $env:AE_SDK_ROOT)
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\InvokeNative.ps1"
 $root = Split-Path -Parent $PSScriptRoot
-if (!$SDKRoot -or !(Test-Path -LiteralPath "$SDKRoot\Examples\Headers\AE_Effect.h")) {
-    throw 'Supply -SDKRoot pointing to the extracted official Adobe SDK folder containing Examples/Headers/AE_Effect.h'
+if ([string]::IsNullOrWhiteSpace($SDKRoot)) {
+    $candidates = @()
+    $cache = Join-Path $root 'build-ae\CMakeCache.txt'
+    if (Test-Path -LiteralPath $cache -PathType Leaf) {
+        $cachedRoot = Select-String -LiteralPath $cache -Pattern '^AE_SDK_ROOT:PATH=(.+)$' | Select-Object -First 1
+        if ($cachedRoot) { $candidates += $cachedRoot.Matches[0].Groups[1].Value }
+    }
+    $workspace = Split-Path -Parent (Split-Path -Parent $root)
+    $candidates += Join-Path $workspace 'work\AdobeSDK26_5\AfterEffectsSDK_26.5_win'
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath (Join-Path $candidate 'Examples\Headers\AE_Effect.h') -PathType Leaf) {
+            $SDKRoot = $candidate
+            break
+        }
+    }
 }
+if ([string]::IsNullOrWhiteSpace($SDKRoot)) {
+    throw 'Adobe SDK was not found. Supply -SDKRoot with your actual extracted SDK folder (or set AE_SDK_ROOT). It must contain Examples\Headers\AE_Effect.h.'
+}
+if (!(Test-Path -LiteralPath (Join-Path $SDKRoot 'Examples\Headers\AE_Effect.h') -PathType Leaf)) {
+    throw "Adobe SDK header was not found under '$SDKRoot'. Use your actual extracted SDK folder, not the example C:\path\to path. Omit -SDKRoot to use the previously configured SDK or the workspace SDK."
+}
+$SDKRoot = (Resolve-Path -LiteralPath $SDKRoot).Path
+Write-Host "Adobe SDK: $SDKRoot"
 $cmakeCommand = Get-Command cmake -ErrorAction SilentlyContinue
 if ($cmakeCommand) { $cmake = $cmakeCommand.Source }
 else {
