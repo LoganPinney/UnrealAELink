@@ -73,9 +73,15 @@ retained with `nullrhi-failed` filenames. The corrected acceptance script uses
 the normal renderer, fails promptly when Unreal exits without enough samples,
 and preserves output on failure. No GPU frame sharing is involved.
 
-The automated editor camera path is verified. Human mouse/keyboard interaction,
-PIE/Game camera selection, and packaged game targets have not been separately
-tested; manual instructions are in build.md. No AE/image path is claimed.
+The automated editor camera path is verified. The user subsequently confirmed
+the manual test works and supplied a screenshot of UnrealAELinkTest alongside
+ReceiverTest. It shows the editor viewport source, advancing frame/sequence
+numbers, and camera position, rotation, FOV, and aspect data in the native console
+(including frame 4280 / sequence 4281). Milestone zero is accepted in manual use.
+
+PIE/Game camera selection and packaged game targets have not been separately
+tested. No AE/image path is claimed. Work remains stopped at milestone zero
+until the next milestone is explicitly authorized.
 
 ## Environment fixes
 
