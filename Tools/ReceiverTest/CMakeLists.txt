@@ -1,5 +1,5 @@
-add_executable(ReceiverTest main.cpp)
-target_link_libraries(ReceiverTest PRIVATE UnrealAELinkIPC)
+add_executable(ReceiverTest main.cpp GpuReceiver.cpp)
+target_link_libraries(ReceiverTest PRIVATE UnrealAELinkGPU)
 if(MSVC)
     target_compile_options(ReceiverTest PRIVATE /W4 /WX /permissive-)
 endif()

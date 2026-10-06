@@ -8,6 +8,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "UnrealClient.h"
 #include "UnrealAELink/Transport.h"
+#include "BeautyCapture.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -18,12 +19,12 @@ DEFINE_LOG_CATEGORY_STATIC(LogUnrealAELink, Log, All);
 
 namespace
 {
-bool FindCamera(UnrealAELink::FrameMetadata& Frame)
+bool FindCamera(UnrealAELink::FrameMetadata& Frame, UWorld*& World)
 {
     if (!GEngine) return false;
     FTransform Transform = FTransform::Identity;
     FRotator Rotation = FRotator::ZeroRotator;
-    UWorld* World = nullptr;
+    World = nullptr;
     // A player view in PIE/Game has priority over the level editor viewport.
     for (const FWorldContext& Context : GEngine->GetWorldContexts())
     {
@@ -120,6 +121,7 @@ private:
             return;
         }
         Bridge = MoveTemp(Candidate);
+        Beauty = MakeUnique<FBeautyCapture>();
         bReceiverConnected = false;
         LastLogTime = -1;
         Ticker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this, &FUnrealAELinkModule::Tick));
@@ -129,6 +131,7 @@ private:
     void Stop()
     {
         if (Ticker.IsValid()) { FTSTicker::RemoveTicker(Ticker); Ticker.Reset(); }
+        Beauty.Reset();
         if (Bridge)
         {
             Bridge.Reset();
@@ -148,7 +151,9 @@ private:
     {
         UnrealAELink::FrameMetadata Frame{};
         Frame.FrameNumber = GFrameCounter;
-        const bool bCamera = FindCamera(Frame);
+        UWorld* World = nullptr;
+        const bool bCamera = FindCamera(Frame, World);
+        if (bCamera && Beauty) Beauty->Tick(World, Frame);
         bool bConnected = bReceiverConnected;
         const auto Result = Bridge->Publish(Frame, bConnected);
         if (Result != UnrealAELink::Result::Ok) return true;
@@ -178,6 +183,7 @@ private:
     }
 
     TUniquePtr<UnrealAELink::Producer> Bridge;
+    TUniquePtr<FBeautyCapture> Beauty;
     TUniquePtr<FAutoConsoleCommand> StartCommand, StopCommand, StatusCommand;
     FTSTicker::FDelegateHandle Ticker;
     bool bReceiverConnected = false;

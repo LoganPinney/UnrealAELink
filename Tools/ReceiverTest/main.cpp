@@ -6,9 +6,11 @@
 #include <cstring>
 #include <iomanip>
 #include <iostream>
+int RunGpuReceiver(int Argc, char** Argv);
 
 int main(int Argc, char** Argv)
 {
+    for (int I = 1; I < Argc; ++I) if (!std::strcmp(Argv[I], "--gpu")) return RunGpuReceiver(Argc, Argv);
     unsigned FramesRequired = 0;
     unsigned TimeoutSeconds = 0;
     bool ExpectMotion = false;

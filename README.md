@@ -1,9 +1,8 @@
 # UnrealAELink
 
-Windows-only milestone zero: **Unreal camera -> named shared memory -> native
-ReceiverTest console**. Target: the locally detected Unreal Engine 5.8.3.
-
-No After Effects integration or graphics transfer is implemented.
+Windows-only prototype: **Unreal camera metadata and 1280x720 Beauty -> native
+receiver**, verified on the locally detected Unreal Engine 5.8.3. Camera metadata
+uses named shared memory; rendered pixels use three named DX12 shared textures.
 
 ## Quick start
 
@@ -22,6 +21,20 @@ In another terminal:
 ```
 
 Move/rotate the perspective Unreal level viewport; watch position/rotation/FOV.
+For rendered images, launch the editor using DX12 and run:
+
+```powershell
+.\build\Tools\ReceiverTest\Release\ReceiverTest.exe --gpu
+```
+
+Close other editors/receivers before the isolated acceptance test:
+
+```powershell
+.\Tools\TestBeautyTransfer.cmd
+```
+
+This creates transient illuminated geometry, moves the camera, checks received
+pixels and writes a diagnostic image to `artifacts/beauty.bmp` after GPU receipt.
 The plugin starts automatically. Output Log commands: `UnrealAELink.Start`,
 `UnrealAELink.Stop`, `UnrealAELink.Status`. Read [build and testing](docs/build.md)
 for prerequisites, detailed acceptance steps and the automated camera test.
@@ -50,5 +63,5 @@ uses unit scale. FOV metadata is not a full projection matrix. Two-second leases
 can report a stalled editor as disconnected. Tested engine versions and actual
 runtime results are recorded in validation.md, without implying AE/GPU support.
 
-The next proposed milestone is rendered Beauty frame transfer to a native
-receiver, after accepting this milestone and explicitly authorizing that work.
+See [Beauty transport](docs/beauty.md) for the GPU contract, validation and limits.
+After Effects development follows this verified native transfer milestone.

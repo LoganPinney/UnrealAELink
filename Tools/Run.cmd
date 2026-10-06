@@ -1,6 +1,7 @@
 @echo off
 setlocal
 set "LinkScript="
+if /i "%~1"=="TestBeautyTransfer" set "LinkScript=TestBeautyTransfer"
 if /i "%~1"=="BuildUnreal" set "LinkScript=BuildUnreal"
 if /i "%~1"=="BuildNative" set "LinkScript=BuildNative"
 if /i "%~1"=="TestEditorCamera" set "LinkScript=TestEditorCamera"
@@ -20,3 +21,4 @@ if not defined LinkPwsh (
 )
 "%LinkPwsh%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0%LinkScript%.ps1" %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %errorlevel%
+
