@@ -59,12 +59,12 @@ struct Mapping
     Result Map(bool Create)
     {
         Reset();
-        Guard.Reset(Create ? CreateMutexW(nullptr, FALSE, GuardName)
-                           : OpenMutexW(SYNCHRONIZE | MUTEX_MODIFY_STATE, FALSE, GuardName));
+        Guard.Reset(Create ? CreateMutexW(nullptr, 0, GuardName)
+                           : OpenMutexW(SYNCHRONIZE | MUTEX_MODIFY_STATE, 0, GuardName));
         if (!Guard.Get()) { Error = GetLastError(); return Create ? Result::Error : Result::NoProducer; }
         Memory.Reset(Create ? CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
                                                 0, sizeof(SharedBlock), MappingName)
-                            : OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, FALSE, MappingName));
+                            : OpenFileMappingW(FILE_MAP_READ | FILE_MAP_WRITE, 0, MappingName));
         if (!Memory.Get()) { Error = GetLastError(); Reset(); return Create ? Result::Error : Result::NoProducer; }
         Block = static_cast<SharedBlock*>(MapViewOfFile(Memory.Get(), FILE_MAP_READ | FILE_MAP_WRITE,
                                                        0, 0, sizeof(SharedBlock)));
@@ -122,7 +122,7 @@ Result Producer::Open()
 {
     if (!State) return Result::Error;
     Close();
-    State->Owner.Reset(CreateMutexW(nullptr, FALSE, OwnerName));
+    State->Owner.Reset(CreateMutexW(nullptr, 0, OwnerName));
     if (!State->Owner.Get()) { State->Map.Error = GetLastError(); return Result::Error; }
     const DWORD Wait = WaitForSingleObject(State->Owner.Get(), 0);
     if (Wait != WAIT_OBJECT_0 && Wait != WAIT_ABANDONED) { State->Owner.Reset(); return Result::Busy; }

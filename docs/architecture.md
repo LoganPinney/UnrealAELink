@@ -37,8 +37,8 @@ The test host registers the plugin through `AdditionalPluginDirectories` and
 does not copy files into an engine installation or another user's project.
 Native tests launch separate C++ child processes. The editor acceptance test
 moves an actual level editor camera for eight seconds, restores it, and requires
-the separate receiver to report changing position/rotation/FOV. NullRHI is used
-only for automated metadata testing; manual editor testing uses normal rendering.
+the separate receiver to report changing position/rotation/FOV. Both automated
+and manual tests use Unreal's normal renderer, so the viewport has pixel dimensions.
 
 There is no GPU texture sharing, image output, AE plugin, timeline sync or camera
 conversion in this milestone. After manual acceptance, the next proposed step is

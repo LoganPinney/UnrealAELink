@@ -7,12 +7,12 @@ No After Effects integration or graphics transfer is implemented.
 
 ## Quick start
 
-In PowerShell 7, from this repository root:
+From PowerShell or Command Prompt, at this repository root:
 
 ```powershell
-.\Tools\BuildNative.ps1
-.\Tools\BuildUnreal.ps1
-.\Tools\OpenTestProject.ps1
+.\Tools\BuildNative.cmd
+.\Tools\BuildUnreal.cmd
+.\Tools\OpenTestProject.cmd
 ```
 
 In another terminal:
@@ -33,7 +33,9 @@ for prerequisites, detailed acceptance steps and the automated camera test.
 - `Shared/include/UnrealAELink/`, `Shared/src/`: protocol and Windows IPC, used by
   both sides, with no Unreal/Adobe dependency in the native build.
 - `Tools/ReceiverTest/`: native Windows x64 C++ receiver.
-- `Tools/*.ps1`: discovery, builds, isolated editor launch and acceptance run.
+- `Tools/*.cmd`, `Tools/*.ps1`: discovery, builds, isolated editor launch and
+  acceptance run. The launchers select PowerShell 7 and set execution policy
+  only for that invocation.
 - `Tests/`: multi-process IPC tests and isolated Unreal test project.
 - `AfterEffectsPlugin/UnrealAELink/`: reservation and missing SDK checklist.
 - `docs/`: [architecture](docs/architecture.md), [protocol](docs/protocol.md),

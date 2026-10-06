@@ -7,6 +7,7 @@ function New-LinkProcessInfo {
     $processInfo.FileName = $Executable
     $processInfo.UseShellExecute = $false
     $processInfo.CreateNoWindow = $true
+    $processInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     $processInfo.RedirectStandardOutput = $true
     $processInfo.RedirectStandardError = $true
     if ($WorkingDirectory) { $processInfo.WorkingDirectory = $WorkingDirectory }

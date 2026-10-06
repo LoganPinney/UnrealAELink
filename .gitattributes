@@ -4,6 +4,7 @@
 *.cs text eol=lf
 *.md text eol=lf
 *.ps1 text eol=lf
+*.cmd text eol=crlf
 *.json text eol=lf
 *.uproject text eol=lf
 *.uplugin text eol=lf

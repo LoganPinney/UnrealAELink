@@ -1,6 +1,8 @@
 Binaries/
 Intermediate/
 Saved/
+DerivedDataCache/
+Tests/UnrealAELinkTest/Config/DefaultInput.ini
 .vs/
 build/
 artifacts/

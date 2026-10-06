@@ -1,7 +1,15 @@
 # Build and test on Windows
 
-Run commands in **PowerShell 7**, from the repository root. Scripts use the
-PowerShell 7/.NET process argument API and normalize only child environments.
+Run the `.cmd` launchers from PowerShell or Command Prompt, at the repository
+root. They find PowerShell 7 on PATH, in its standard install, or in the detected
+Codex bundled runtime. The underlying scripts require PowerShell 7's .NET
+process argument API and normalize only child environments.
+
+If `.ps1` reports "running scripts is disabled", use the corresponding `.cmd`
+launcher. It starts PowerShell 7 with `-NoProfile -ExecutionPolicy Bypass -File`
+for this invocation. It does not change the user/machine policy or require
+administrator privileges for that setting. Organization Group Policy still has
+precedence. See [Microsoft's execution policy documentation](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies).
 
 ## Discovered toolchain
 
@@ -15,8 +23,8 @@ Inspected on October 5, 2026:
   Windows SDK 10.0.22621.0 and CMake 3.31.6.
 - Unreal's SwarmInterface also requires .NET Framework SDK 4.6+; install the
   .NET Framework 4.8 SDK and targeting pack. Both automated attempts to add
-  this component were cancelled at the Windows administrator prompt; it is
-  still missing, and currently blocks the Unreal build.
+  this component were cancelled at the Windows administrator prompt. A follow-up
+  inspection confirmed the .NET Framework 4.8 SDK is now installed.
 - No AE application/SDK was found in the scoped locations checked. See
   `AfterEffectsPlugin/UnrealAELink/README.md` for the missing development inputs.
 
@@ -44,39 +52,41 @@ The installed engine's `Engine/Config/Windows/Windows_SDK.json` contains its
 toolchain constraints; the numeric compiler version matters more than the
 toolset directory name. Do not force a compiler version banned by the engine.
 
-To clear this machine's current blocker: open **Visual Studio Installer**, find
+If the SDK is missing on another machine: open **Visual Studio Installer**, find
 **Build Tools 2022**, choose **Modify -> Individual components**, select
 **.NET Framework 4.8 SDK** and **.NET Framework 4.8 targeting pack**, apply the
-change and approve Windows' administrator prompt. Then rerun BuildUnreal.ps1.
+change and approve Windows' administrator prompt. Then rerun BuildUnreal.cmd.
 
 ## Build both projects
 
 Close Unreal editors before the native IPC tests; they use the same v1 endpoint.
 
 ```powershell
-.\Tools\BuildNative.ps1
-.\Tools\BuildUnreal.ps1
+.\Tools\BuildNative.cmd
+.\Tools\BuildUnreal.cmd
 ```
 
 The first command builds ReceiverTest and runs the Windows IPC suite. The second
 builds `UnrealAELinkTestEditor` and the plugin using the installed engine's bundled
 .NET/UnrealBuildTool, Development Win64. It disables UBA for a local compiler
 build. No full engine rebuild is required. Scripts fail visibly on nonzero exit.
-Use `BuildNative.ps1 -Fresh` if an earlier failed CMake compiler probe polluted
-the cache. Optional `BuildUnreal.ps1 -EngineRoot 'D:\CustomUE'` selects an explicit
+Use `BuildNative.cmd -Fresh` if an earlier failed CMake compiler probe polluted
+the cache. Optional `BuildUnreal.cmd -EngineRoot 'D:\CustomUE'` selects an explicit
 UE 5.8 root. Automatic selection prefers a registered 5.8 engine.
 
 Outputs:
 
 ```text
 build/Tools/ReceiverTest/Release/ReceiverTest.exe
-UnrealPlugin/UnrealAELink/Binaries/Win64/UnrealEditor-UnrealAELink.dll
+Tests/UnrealAELinkTest/Binaries/Win64/UnrealEditor-UnrealAELink.dll
 Tests/UnrealAELinkTest/Binaries/Win64/UnrealEditor-UnrealAELinkTest.dll
 ```
 
+UE 5.8 places this external plugin's DLL alongside the host project's binaries.
+
 ## First acceptance test: move the viewport
 
-1. Run `.\Tools\OpenTestProject.ps1`. This opens the isolated test project with
+1. Run `.\Tools\OpenTestProject.cmd`. This opens the isolated test project with
    UnrealAELink already enabled. For a newly enabled plugin in another project,
    restart Unreal after enabling it.
 2. Select the perspective level viewport. Open **Tools -> Debug -> Output Log**.
@@ -103,10 +113,10 @@ Tests/UnrealAELinkTest/Binaries/Win64/UnrealEditor-UnrealAELinkTest.dll
 Close other Unreal editors and receivers, then run:
 
 ```powershell
-.\Tools\TestEditorCamera.ps1
+.\Tools\TestEditorCamera.cmd
 ```
 
-This starts a hidden, unattended Unreal editor with NullRHI (metadata only),
+This starts an unattended Unreal editor with its normal renderer and offscreen output,
 moves the actual editor camera for eight seconds, and starts a separate native
 receiver. Passing requires successful Unreal automation plus at least 20 distinct
 received samples and changing camera values. It restores the camera before exit.

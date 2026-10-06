@@ -21,8 +21,8 @@ namespace
 bool FindCamera(UnrealAELink::FrameMetadata& Frame)
 {
     if (!GEngine) return false;
-    FTransform Transform;
-    FRotator Rotation;
+    FTransform Transform = FTransform::Identity;
+    FRotator Rotation = FRotator::ZeroRotator;
     UWorld* World = nullptr;
     // A player view in PIE/Game has priority over the level editor viewport.
     for (const FWorldContext& Context : GEngine->GetWorldContexts())
@@ -162,12 +162,17 @@ private:
         {
             LastLogTime = Now;
             if (bCamera)
+            {
                 UE_LOG(LogUnrealAELink, Display, TEXT("Frame=%llu WorldTime=%.4f Camera=%u Position=(%.3f,%.3f,%.3f) Rotation=(P=%.3f,Y=%.3f,R=%.3f) FOV=%.3f Aspect=%.5f"),
                     static_cast<unsigned long long>(Frame.FrameNumber), Frame.TimeSeconds, static_cast<uint32>(Frame.Source),
                     Frame.Position[0], Frame.Position[1], Frame.Position[2], Frame.Rotation[0], Frame.Rotation[1], Frame.Rotation[2],
                     Frame.FieldOfView, Frame.AspectRatio);
-            else UE_LOG(LogUnrealAELink, Display, TEXT("Frame=%llu: waiting for an active perspective viewport or player camera"),
+            }
+            else
+            {
+                UE_LOG(LogUnrealAELink, Display, TEXT("Frame=%llu: waiting for an active perspective viewport or player camera"),
                 static_cast<unsigned long long>(Frame.FrameNumber));
+            }
         }
         return true;
     }
