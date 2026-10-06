@@ -52,5 +52,26 @@ contains named resources, fence values, ownership and per-frame camera metadata.
 The native Adobe effect is built against SDK 26.5. One background client per
 Adobe process provides immutable completed snapshots to render callbacks.
 See [Adobe setup and validation](../AfterEffectsPlugin/UnrealAELink/README.md).
-Host loading is pending administrator installation. No timeline sync or camera
-conversion/control is implemented.
+The v0.1 host Render Queue test passed locally at 8/16/32 bpc. Its export reads
+latest Beauty and does not synchronize Unreal to the AE timeline. Camera
+conversion/control is not implemented.
+
+## v0.2 deterministic timeline
+
+The [AE-authoritative timeline implementation](deterministic.md) adds an
+independent versioned request/response mailbox and a game-thread Sequencer
+handler. Live rendering preserves the capture/transport/SmartFX paths above.
+Deterministic PreRender queues the original AE `current_time/time_scale`, waits
+for direct Sequencer evaluation and a matching completed DX12 image, and keeps
+an immutable private frame for SmartRender. GPU slot metadata and the response
+carry matching request identity; the response also includes resource session and
+Beauty sequence. No successful response is published before GPU completion.
+
+The single process-wide worker serializes requests and coalesces identical
+outstanding requests per instance. Live copies are suspended until the exact
+request image is privately copied. Layer offset/stretch/remapping, parallel MFR,
+simulation/history dependent animation and multiple sequences are unsupported.
+The deadline is 15 seconds; failures never select Latest. See deterministic.md
+for precise APIs, thread ownership, lifecycle, acceptance and limits. Actual AE
+host acceptance passed, including every frame in a 0..30 Render Queue job,
+random access, half-frame and NTSC requests, with full RGB image hash matching.

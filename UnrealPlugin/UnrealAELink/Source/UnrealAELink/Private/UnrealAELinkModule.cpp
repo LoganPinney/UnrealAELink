@@ -9,6 +9,7 @@
 #include "UnrealClient.h"
 #include "UnrealAELink/Transport.h"
 #include "BeautyCapture.h"
+#include "SequencerRequests.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -98,6 +99,8 @@ public:
             FConsoleCommandDelegate::CreateRaw(this, &FUnrealAELinkModule::Stop));
         StatusCommand = MakeUnique<FAutoConsoleCommand>(TEXT("UnrealAELink.Status"), TEXT("Print bridge status"),
             FConsoleCommandDelegate::CreateRaw(this, &FUnrealAELinkModule::Status));
+        SequenceCommand = MakeUnique<FAutoConsoleCommand>(TEXT("UnrealAELink.Sequence"), TEXT("Select one Level Sequence asset path for AE-driven rendering"),
+            FConsoleCommandWithArgsDelegate::CreateLambda([this](const TArray<FString>& Args) { if (Sequencer) Sequencer->Select(Args); }));
         Start(); // Enabling the plugin is sufficient for milestone zero.
     }
 
@@ -105,6 +108,7 @@ public:
     {
         Stop();
         StatusCommand.Reset(); StopCommand.Reset(); StartCommand.Reset();
+        SequenceCommand.Reset();
         UE_LOG(LogUnrealAELink, Display, TEXT("Plugin shutdown"));
     }
 
@@ -122,6 +126,7 @@ private:
         }
         Bridge = MoveTemp(Candidate);
         Beauty = MakeUnique<FBeautyCapture>();
+        Sequencer = MakeUnique<FSequencerRequests>();
         bReceiverConnected = false;
         LastLogTime = -1;
         Ticker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateRaw(this, &FUnrealAELinkModule::Tick));
@@ -131,7 +136,8 @@ private:
     void Stop()
     {
         if (Ticker.IsValid()) { FTSTicker::RemoveTicker(Ticker); Ticker.Reset(); }
-        Beauty.Reset();
+        Beauty.Reset(); // retire all GPU work before destroying the sequence/player
+        Sequencer.Reset();
         if (Bridge)
         {
             Bridge.Reset();
@@ -153,7 +159,8 @@ private:
         Frame.FrameNumber = GFrameCounter;
         UWorld* World = nullptr;
         const bool bCamera = FindCamera(Frame, World);
-        if (bCamera && Beauty) Beauty->Tick(World, Frame);
+        const bool bDeterministic = Beauty && Sequencer && Sequencer->Tick(World, Frame, *Beauty);
+        if (bCamera && Beauty && !bDeterministic) Beauty->Tick(World, Frame);
         bool bConnected = bReceiverConnected;
         const auto Result = Bridge->Publish(Frame, bConnected);
         if (Result != UnrealAELink::Result::Ok) return true;
@@ -184,7 +191,8 @@ private:
 
     TUniquePtr<UnrealAELink::Producer> Bridge;
     TUniquePtr<FBeautyCapture> Beauty;
-    TUniquePtr<FAutoConsoleCommand> StartCommand, StopCommand, StatusCommand;
+    TUniquePtr<FSequencerRequests> Sequencer;
+    TUniquePtr<FAutoConsoleCommand> StartCommand, StopCommand, StatusCommand, SequenceCommand;
     FTSTicker::FDelegateHandle Ticker;
     bool bReceiverConnected = false;
     double LastLogTime = -1;

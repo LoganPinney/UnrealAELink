@@ -1,5 +1,9 @@
 # Verified native Beauty transfer
 
+This section records v0.1 validation. v0.2 deterministic rendering retains the
+DX12 capture/copy/readback implementation, moves extended slot metadata to
+Beauty.v2, and adds exact request matching; see the extension below.
+
 UE 5.8.3 captures FinalColorLDR through a transient SceneCaptureComponent2D
 following the selected perspective editor viewport or first PIE/Game player view.
 The texture is 1280x720 PF_R8G8B8A8, at most 30 captures/second, opaque Beauty.
@@ -74,5 +78,33 @@ session. Metadata receiver and GPU receiver may run together because they use
 separate leases. Multiple GPU consumers cannot. GPU source is fixed Beauty;
 alpha, depth and other passes are not implemented. SceneCapture matches camera
 transform/FOV at fixed 16:9; custom viewport post-process/projection settings are
-not cloned. Output is display-referred 8-bit LDR with opaque alpha. No timeline,
-camera control, deterministic frame stepping or render-farm protocol exists.
+not cloned. Output is display-referred 8-bit LDR with opaque alpha. v0.1 has no
+timeline stepping; the v0.2 extension below adds direct sequence evaluation.
+Camera control and render-farm protocols remain outside scope.
+
+## v0.2 AE-driven deterministic extension
+
+`Mode: Live` keeps the latest completed asynchronous image and per-instance
+freeze/resume. `Mode: Deterministic` evaluates one explicitly selected Level
+Sequence at AE's original rational render time. Beauty is captured after
+Sequencer applies its state and component render updates are sent. It bypasses
+the live 30Hz throttle, resets capture history, and disables motion blur.
+
+Each GPU slot carries request id and rational time; live slots carry id zero.
+The producer pauses live copying while a request owns the mailbox. The response
+contains matching request/time and Beauty session/sequence and is published only
+after the copy completion fence. The private receiver frame is validated against
+all those fields and retained by PreRender. SmartRender never asks for Latest in
+Deterministic mode. A 15-second timeout fails rather than painting an unrelated
+frame. Parallel MFR is unsupported; requests are deliberately serialized.
+
+The updated GPU block is version 2 with new object names; both sides must be
+updated together. Camera metadata v1 is unchanged. Fixed size, opaque LDR,
+single-consumer, adapter, projection and post-process limitations still apply.
+Direct evaluation supports authored random-access state; physics/particles and
+other history-dependent effects are not guaranteed deterministic.
+
+Native tests, actual Unreal/native Sequencer receipt and actual AE deterministic
+export have passed. The host test validates decoded AE pixel motion and full RGB
+hashes for a real sequential Render Queue job and out-of-order requests.
+See [timeline implementation](deterministic.md) and [current evidence](validation.md).

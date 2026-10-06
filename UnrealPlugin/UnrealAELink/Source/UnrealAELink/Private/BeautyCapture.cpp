@@ -16,6 +16,8 @@ struct FBeautyRenderState
     FTextureRHIRef Shared[UnrealAELink::GpuSlotCount];
     bool bOpen = false, bConnected = false;
     std::atomic<bool> bWatching{false};
+    std::atomic<int> RequestResult{0};
+    uint64 PendingFence = 0, PendingSession = 0;
     bool Open()
     {
         const auto Result = Producer.Open(GetID3D12DynamicRHI()->RHIGetDevice_NoMGPU());
@@ -42,18 +44,18 @@ struct FBeautyRenderState
 FBeautyCapture::FBeautyCapture() : RenderState(MakeShared<FBeautyRenderState, ESPMode::ThreadSafe>()) {}
 FBeautyCapture::~FBeautyCapture() { Stop(); }
 
-void FBeautyCapture::Tick(UWorld* World, const UnrealAELink::FrameMetadata& Camera)
+bool FBeautyCapture::Tick(UWorld* World, const UnrealAELink::FrameMetadata& Camera, const UnrealAELink::FrameIdentity& Identity)
 {
     if (!World || !World->Scene || !IsRHID3D12())
     {
         if (!bWarned) { UE_LOG(LogUnrealAELinkBeauty, Warning, TEXT("Beauty requires a rendering world and DX12 RHI")); bWarned = true; }
-        return;
+        return false;
     }
     const double Now = FPlatformTime::Seconds();
-    if (Now - LastCapture < 1.0 / 30.0) return;
+    if (!Identity.RequestId && Now - LastCapture < 1.0 / 30.0) return false;
     LastCapture = Now;
     if (Capture.IsValid() && Capture->GetWorld() != World) Stop();
-    const bool bCapture = RenderState->bWatching.load();
+    const bool bCapture = Identity.RequestId || RenderState->bWatching.load();
     if (bCapture && !Capture.IsValid())
     {
         Target.Reset(NewObject<UTextureRenderTarget2D>(GetTransientPackage(), NAME_None, RF_Transient));
@@ -70,6 +72,12 @@ void FBeautyCapture::Tick(UWorld* World, const UnrealAELink::FrameMetadata& Came
     FTextureRenderTargetResource* Resource = nullptr;
     if (bCapture)
     {
+        // Sequencer dirties primitive render state on the game thread. Send it
+        // before enqueuing CaptureScene so the render thread sees this evaluation.
+        if (Identity.RequestId) World->SendAllEndOfFrameUpdates();
+        Capture->bAlwaysPersistRenderingState = !Identity.RequestId;
+        Capture->bCameraCutThisFrame = Identity.RequestId != 0;
+        Capture->ShowFlags.SetMotionBlur(!Identity.RequestId);
         Capture->SetWorldLocationAndRotation(FVector(Camera.Position[0], Camera.Position[1], Camera.Position[2]),
             FRotator(Camera.Rotation[0], Camera.Rotation[1], Camera.Rotation[2]));
         Capture->FOVAngle = Camera.FieldOfView;
@@ -77,10 +85,12 @@ void FBeautyCapture::Tick(UWorld* World, const UnrealAELink::FrameMetadata& Came
         Resource = Target->GameThread_GetRenderTargetResource();
     }
     auto State = RenderState;
-    ENQUEUE_RENDER_COMMAND(UnrealAELinkBeautyCopy)([State, Resource, Camera](FRHICommandListImmediate& Cmd)
+    if (Identity.RequestId) State->RequestResult = 1;
+    ENQUEUE_RENDER_COMMAND(UnrealAELinkBeautyCopy)([State, Resource, Camera, Identity](FRHICommandListImmediate& Cmd)
     {
         FRHICommandListScopedPipeline Pipeline(Cmd, ERHIPipeline::Graphics);
-        if (!State->bOpen && !State->Open()) return;
+        if (Identity.RequestId) State->PendingFence = 0;
+        if (!State->bOpen && !State->Open()) { if (Identity.RequestId) State->RequestResult = 3; return; }
         uint32 Slot = 0; uint64 Value = 0; bool Connected = false;
         const auto Reserved = State->Producer.Reserve(Slot, Value, Connected);
         if (Reserved != UnrealAELink::Result::Busy) State->bWatching = Connected;
@@ -89,6 +99,7 @@ void FBeautyCapture::Tick(UWorld* World, const UnrealAELink::FrameMetadata& Came
             // A departed reader may have queued GPU work. Use a new generation;
             // never overwrite its old resources. Retire only our own completed writes.
             if (State->Producer.OwnWritesComplete()) { State->Close(); State->Open(); }
+            if (Identity.RequestId) State->RequestResult = 4;
             return;
         }
         if (Connected != State->bConnected)
@@ -96,13 +107,13 @@ void FBeautyCapture::Tick(UWorld* World, const UnrealAELink::FrameMetadata& Came
             UE_LOG(LogUnrealAELinkBeauty, Display, TEXT("Beauty receiver %s"), Connected ? TEXT("connected") : TEXT("disconnected"));
             State->bConnected = Connected;
         }
-        if (Reserved != UnrealAELink::Result::Ok) return;
+        if (Reserved != UnrealAELink::Result::Ok) { if (Identity.RequestId) State->RequestResult = 4; return; }
         const FTextureRHIRef Source = Resource ? Resource->GetRenderTargetTexture() : FTextureRHIRef();
         if (!Source.IsValid())
         {
             Cmd.EnqueueLambda([State, Value](FRHICommandList& Executing)
             { GetID3D12DynamicRHI()->RHISignalManualFence(Executing, State->Producer.Fence(), Value); });
-            State->Producer.Cancel(Slot); return;
+            State->Producer.Cancel(Slot); if (Identity.RequestId) State->RequestResult = 3; return;
         }
         Cmd.Transition(FRHITransitionInfo(Source, ERHIAccess::Unknown, ERHIAccess::CopySrc));
         Cmd.Transition(FRHITransitionInfo(State->Shared[Slot], ERHIAccess::Unknown, ERHIAccess::CopyDest));
@@ -113,8 +124,36 @@ void FBeautyCapture::Tick(UWorld* World, const UnrealAELink::FrameMetadata& Came
         { GetID3D12DynamicRHI()->RHISignalManualFence(Executing, State->Producer.Fence(), Value); });
         // If a short mutex race loses publication, Reserve retires this slot after
         // the fence completes and simply drops the frame.
-        State->Producer.Publish(Slot, Value, Camera);
+        const auto Published = State->Producer.Publish(Slot, Value, Camera, Identity);
+        if (Identity.RequestId)
+        {
+            if (Published == UnrealAELink::Result::Ok)
+            { State->PendingFence = Value; State->PendingSession = State->Producer.Session(); }
+            else State->RequestResult = 4;
+        }
     });
+    return bCapture;
+}
+
+int FBeautyCapture::PollRequest(uint64& Session, uint64& Sequence)
+{
+    auto State = RenderState;
+    const int Result = State->RequestResult.load();
+    if (Result == 2) { Session = State->PendingSession; Sequence = State->PendingFence; }
+    if (Result == 1)
+    {
+        ENQUEUE_RENDER_COMMAND(UnrealAELinkBeautyCompletion)([State](FRHICommandListImmediate&)
+        {
+            State->Producer.Heartbeat();
+            if (State->RequestResult.load() == 1 && State->PendingFence && State->Producer.Fence())
+            {
+                const auto Completed = State->Producer.Fence()->GetCompletedValue();
+                if (Completed == MAX_uint64) State->RequestResult = 3;
+                else if (Completed >= State->PendingFence) State->RequestResult = 2;
+            }
+        });
+    }
+    return Result;
 }
 
 void FBeautyCapture::Stop()

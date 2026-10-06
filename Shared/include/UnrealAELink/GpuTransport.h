@@ -22,7 +22,7 @@ public:
     Result Open(ID3D12Device* Device);
     void Close() noexcept;
     Result Reserve(std::uint32_t& Slot, std::uint64_t& FenceValue, bool& ReceiverConnected);
-    Result Publish(std::uint32_t Slot, std::uint64_t FenceValue, const FrameMetadata& Camera);
+    Result Publish(std::uint32_t Slot, std::uint64_t FenceValue, const FrameMetadata& Camera, const FrameIdentity& Identity = {});
     // Even a cancelled reservation must signal its returned fence value. A
     // cancelled slot is reusable only after that signal completes.
     void Cancel(std::uint32_t Slot);
@@ -42,6 +42,7 @@ struct BeautyFrame
     std::uint64_t Session = 0;
     std::uint64_t Sequence = 0;
     FrameMetadata Camera{};
+    FrameIdentity Identity{};
     std::uint32_t Width = 0;
     std::uint32_t Height = 0;
     std::uint64_t Checksum = 0;
@@ -60,7 +61,7 @@ public:
     GpuConsumer& operator=(const GpuConsumer&) = delete;
     Result Open();
     void Close() noexcept;
-    Result Read(BeautyFrame& Frame, std::uint32_t TimeoutMs = 100);
+    Result Read(BeautyFrame& Frame, std::uint32_t TimeoutMs = 100, std::uint64_t RequestId = 0);
     std::int32_t LastError() const;
 private:
     struct Impl;

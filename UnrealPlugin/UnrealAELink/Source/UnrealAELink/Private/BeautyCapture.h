@@ -13,7 +13,9 @@ class FBeautyCapture
 public:
     FBeautyCapture();
     ~FBeautyCapture();
-    void Tick(UWorld* World, const UnrealAELink::FrameMetadata& Camera);
+    bool Tick(UWorld* World, const UnrealAELink::FrameMetadata& Camera, const UnrealAELink::FrameIdentity& Identity = {});
+    // 1 in-flight, 2 GPU complete, 3 failed, 4 retry reservation. Game thread only.
+    int PollRequest(uint64& Session, uint64& Sequence);
     void Stop();
 private:
     TStrongObjectPtr<USceneCaptureComponent2D> Capture;

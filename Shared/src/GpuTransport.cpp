@@ -218,7 +218,7 @@ Result GpuProducer::Reserve(std::uint32_t& Slot, std::uint64_t& Value, bool& Con
     B.Slots[Slot].FenceValue = Value;
     return Result::Ok;
 }
-Result GpuProducer::Publish(std::uint32_t Slot, std::uint64_t Value, const FrameMetadata& Camera)
+Result GpuProducer::Publish(std::uint32_t Slot, std::uint64_t Value, const FrameMetadata& Camera, const FrameIdentity& Identity)
 {
     if (!State || !State->Active || Slot >= GpuSlotCount) return Result::Error;
     GpuDetail::Lock Guard(State->Map.Guard.Get(), 5);
@@ -228,6 +228,7 @@ Result GpuProducer::Publish(std::uint32_t Slot, std::uint64_t Value, const Frame
     if (S.State != GpuSlotState::Writing) return Result::Error;
     S.Camera = Camera; S.Camera.StructBytes = sizeof(FrameMetadata); S.Camera.Version = ProtocolVersion;
     S.Camera.AspectRatio = static_cast<float>(BeautyWidth) / BeautyHeight; S.Camera.PublishedTickMs = GetTickCount64();
+    S.Identity = Identity;
     S.FenceValue = Value; S.Sequence = Value; S.ReaderPid = 0; S.State = GpuSlotState::Ready;
     B.ProducerHeartbeatMs = GetTickCount64();
     return Result::Ok;
@@ -387,7 +388,7 @@ void GpuConsumer::Close() noexcept
     if (State) State->Map.Error = Error;
 }
 
-Result GpuConsumer::Read(BeautyFrame& Frame, std::uint32_t TimeoutMs)
+Result GpuConsumer::Read(BeautyFrame& Frame, std::uint32_t TimeoutMs, std::uint64_t RequestId)
 {
     if (!State || !State->Map.Block || !State->Device || !State->Ready) return Result::NoProducer;
     {
@@ -415,7 +416,7 @@ Result GpuConsumer::Read(BeautyFrame& Frame, std::uint32_t TimeoutMs)
             for (std::uint32_t I = 0; I < GpuSlotCount; ++I)
             {
                 const auto& S = B.Slots[I];
-                if (S.State == GpuSlotState::Ready && S.FenceValue <= Completed && S.Sequence > Sequence)
+                if (S.State == GpuSlotState::Ready && S.FenceValue <= Completed && S.Sequence > Sequence && S.Identity.RequestId == RequestId)
                 { Latest = I; Sequence = S.Sequence; }
             }
             if (Latest == GpuSlotCount) return Result::NoFrame;
@@ -465,6 +466,7 @@ Result GpuConsumer::Read(BeautyFrame& Frame, std::uint32_t TimeoutMs)
     if (FAILED(Hr)) { State->Map.Error = Hr; return Result::Error; }
     Frame.Width = BeautyWidth; Frame.Height = BeautyHeight; Frame.Session = State->Session;
     Frame.Sequence = State->PendingMetadata.Sequence; Frame.Camera = State->PendingMetadata.Camera;
+    Frame.Identity = State->PendingMetadata.Identity;
     Frame.Rgba.resize(static_cast<std::size_t>(BeautyWidth) * BeautyHeight * 4);
     Frame.Checksum = 14695981039346656037ull; Frame.ColoredPixels = 0;
     for (std::uint32_t Y = 0; Y < BeautyHeight; ++Y)

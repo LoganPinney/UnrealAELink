@@ -20,7 +20,7 @@
 
 namespace
 {
-enum { Input, Connect, Live, Source, Status, FrameNumber, NumParams };
+enum { Input, Connect, Live, Source, Status, FrameNumber, Mode, NumParams };
 constexpr PF_OutFlags Flags = PF_OutFlag_NON_PARAM_VARY | PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_SEND_UPDATE_PARAMS_UI;
 constexpr PF_OutFlags2 Flags2 = PF_OutFlag2_SUPPORTS_SMART_RENDER | PF_OutFlag2_FLOAT_COLOR_AWARE | PF_OutFlag2_REVEALS_ZERO_ALPHA | PF_OutFlag2_I_MIX_GUID_DEPENDENCIES;
 std::unique_ptr<UnrealAELink::FrameClient> Client;
@@ -48,7 +48,14 @@ PF_Err SequenceSetup(PF_InData* in_data, PF_OutData* out_data, bool Resetup)
     if (!H) return PF_Err_OUT_OF_MEMORY;
     auto* S = static_cast<Sequence*>(PF_LOCK_HANDLE(H));
     if (!S) return PF_Err_OUT_OF_MEMORY;
-    S->Id = Client->Register(reinterpret_cast<std::uintptr_t>(in_data->effect_ref));
+    // AE may RESETUP multiple sequence-data copies for the same effect_ref.
+    // Their handles are separate lifetimes; registering one must not invalidate
+    // another copy's outstanding PreRender token.
+    S->Id = Client->Register(reinterpret_cast<std::uintptr_t>(H));
+    char Registration[192]{};
+    std::snprintf(Registration, sizeof(Registration), "REGISTRATION handle=%p effect=%p id=%llu",
+        static_cast<void*>(H), static_cast<void*>(in_data->effect_ref), static_cast<unsigned long long>(S->Id));
+    Report(Registration);
     PF_UNLOCK_HANDLE(H); out_data->sequence_data = H; Report(Resetup ? "SEQUENCE_RESETUP" : "SEQUENCE_SETUP"); return PF_Err_NONE;
 }
 std::shared_ptr<const UnrealAELink::BeautyFrame> GetImage(PF_InData* In, bool Connected, bool IsLive)
@@ -64,6 +71,8 @@ PF_Err ParamsSetup(PF_InData* in_data, PF_OutData* out_data)
     PF_ADD_POPUP("Source", 1, 1, "Beauty", Source);
     PF_ADD_BUTTON("Disconnected", "Refresh", 0, ParameterFlags, Status);
     PF_ADD_BUTTON("Frame: none", "Details", 0, ParameterFlags, FrameNumber);
+    AEFX_CLR_STRUCT(def); def.flags = ParameterFlags;
+    PF_ADD_POPUP("Mode", 2, 1, "Live|Deterministic", Mode);
     out_data->num_params = NumParams; return PF_Err_NONE;
 }
 
@@ -118,22 +127,52 @@ PF_Err RenderWorld(PF_InData* In, PF_EffectWorld* Out, const UnrealAELink::Beaut
         Image ? static_cast<unsigned long long>(Image->Checksum) : 0,
         Image ? static_cast<unsigned long long>(Image->ColoredPixels) : 0);
     Report(Message);
+    if (Image && Image->Identity.RequestId)
+    {
+        std::snprintf(Message, sizeof(Message), "AE RENDER id=%llu time=%lld/%lld beauty=%llu hash=%llu",
+            static_cast<unsigned long long>(Image->Identity.RequestId),
+            static_cast<long long>(Image->Identity.TimeValue), static_cast<long long>(Image->Identity.TimeScale),
+            static_cast<unsigned long long>(Image->Sequence), static_cast<unsigned long long>(Image->Checksum));
+        Report(Message);
+    }
     if (Format == PF_PixelFormat_ARGB32) return Paint<PF_Pixel8, A_u_char>(In, Out, Image, PF_MAX_CHAN8);
     else if (Format == PF_PixelFormat_ARGB64) return Paint<PF_Pixel16, A_u_short>(In, Out, Image, PF_MAX_CHAN16);
     else if (Format == PF_PixelFormat_ARGB128) return Paint<PF_PixelFloat, PF_FpShort>(In, Out, Image, 1.0f);
     else return PF_Err_BAD_CALLBACK_PARAM;
 }
 
+std::shared_ptr<const UnrealAELink::BeautyFrame> SelectImage(PF_InData* In, bool Connected, bool IsLive, bool Deterministic, PF_Err& Error)
+{
+    if (!Connected || !Deterministic) return GetImage(In, Connected, IsLive);
+    UnrealAELink::FrameStatus Status = UnrealAELink::FrameStatus::Pending;
+    PF_Err Aborted = PF_Err_NONE;
+    auto Image = Client->RequestFrame(InstanceId(In), In->current_time, In->time_scale, Status,
+        [&] { Aborted = (*In->inter.abort)(In->effect_ref); return Aborted != PF_Err_NONE; });
+    if (!Image)
+    {
+        char Message[160]{};
+        std::snprintf(Message, sizeof(Message), "AE REQUEST FAILED time=%ld/%lu status=%d", long(In->current_time), static_cast<unsigned long>(In->time_scale), int(Status));
+        Report(Message);
+        Error = Aborted ? Aborted : PF_Err_BAD_CALLBACK_PARAM;
+    }
+    return Image;
+}
 PF_Err PreRender(PF_InData* in_data, PF_PreRenderExtra* Extra)
 {
     Report("SMART_PRE_RENDER");
-    PF_ParamDef C{}, L{};
+    PF_ParamDef C{}, L{}, M{};
     auto Error = PF_CHECKOUT_PARAM(in_data, Connect, in_data->current_time, in_data->time_step, in_data->time_scale, &C);
     if (Error) { Report("CHECKOUT_CONNECT_ERROR"); return Error; }
     Error = PF_CHECKOUT_PARAM(in_data, Live, in_data->current_time, in_data->time_step, in_data->time_scale, &L);
-    if (Error) { Report("CHECKOUT_LIVE_ERROR"); return Error; }
-    auto Data = std::make_unique<PreFrame>(); Data->Image = GetImage(in_data, C.u.bd.value != 0, L.u.bd.value != 0);
-    const std::uint64_t Key[] = {Data->Image ? Data->Image->Session : 0, Data->Image ? Data->Image->Sequence : 0};
+    if (Error) { PF_CHECKIN_PARAM(in_data, &C); Report("CHECKOUT_LIVE_ERROR"); return Error; }
+    Error = PF_CHECKOUT_PARAM(in_data, Mode, in_data->current_time, in_data->time_step, in_data->time_scale, &M);
+    if (Error) { PF_CHECKIN_PARAM(in_data, &L); PF_CHECKIN_PARAM(in_data, &C); return Error; }
+    auto Data = std::make_unique<PreFrame>();
+    Data->Image = SelectImage(in_data, C.u.bd.value != 0, L.u.bd.value != 0, M.u.pd.value == 2, Error);
+    PF_CHECKIN_PARAM(in_data, &M); PF_CHECKIN_PARAM(in_data, &L); PF_CHECKIN_PARAM(in_data, &C);
+    if (Error) return Error;
+    const std::uint64_t Key[] = {Data->Image ? Data->Image->Session : 0, Data->Image ? Data->Image->Sequence : 0,
+        Data->Image ? Data->Image->Identity.RequestId : 0};
     if (Extra->cb->GuidMixInPtr)
     {
         Error = Extra->cb->GuidMixInPtr(in_data->effect_ref, sizeof(Key), Key);
@@ -176,9 +215,9 @@ extern "C" DllExport PF_Err EffectMain(PF_Cmd Cmd, PF_InData* in_data, PF_OutDat
         switch (Cmd)
         {
         case PF_Cmd_ABOUT:
-            std::snprintf(out_data->return_msg, sizeof(out_data->return_msg), "UnrealAELink 0.1\rLive DX12 Beauty from Unreal. 1280x720 RGBA8. No timeline or camera control."); break;
+            std::snprintf(out_data->return_msg, sizeof(out_data->return_msg), "UnrealAELink 0.2\rLive or AE-driven Sequencer Beauty. 1280x720 RGBA8."); break;
         case PF_Cmd_GLOBAL_SETUP:
-            out_data->my_version = PF_VERSION(0,1,0,PF_Stage_DEVELOP,1);
+            out_data->my_version = PF_VERSION(0,2,0,PF_Stage_DEVELOP,1);
             out_data->out_flags = Flags; out_data->out_flags2 = Flags2;
             Client = std::make_unique<UnrealAELink::FrameClient>(); Report("GLOBAL_SETUP"); break;
         case PF_Cmd_GLOBAL_SETDOWN: Client.reset(); Report("GLOBAL_SETDOWN"); break;
@@ -191,7 +230,11 @@ extern "C" DllExport PF_Err EffectMain(PF_Cmd Cmd, PF_InData* in_data, PF_OutDat
             if (in_data->sequence_data) PF_DISPOSE_HANDLE(in_data->sequence_data);
             out_data->sequence_data = nullptr; break;
         case PF_Cmd_RENDER:
-        { auto Image = GetImage(in_data, Params[Connect]->u.bd.value != 0, Params[Live]->u.bd.value != 0); return RenderWorld(in_data, Output, Image.get()); }
+        {
+            PF_Err Error = PF_Err_NONE;
+            auto Image = SelectImage(in_data, Params[Connect]->u.bd.value != 0, Params[Live]->u.bd.value != 0, Params[Mode]->u.pd.value == 2, Error);
+            return Error ? Error : RenderWorld(in_data, Output, Image.get());
+        }
         case PF_Cmd_SMART_PRE_RENDER: return PreRender(in_data, static_cast<PF_PreRenderExtra*>(Extra));
         case PF_Cmd_SMART_RENDER:
         {

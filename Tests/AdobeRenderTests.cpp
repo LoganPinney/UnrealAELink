@@ -20,6 +20,35 @@ SPErr SPAPI Acquire(const char* Name, int32 Version, const void** Suite)
 SPErr SPAPI Release(const char*, int32) { ++Releases; return 0; }
 PF_Err Abort(PF_ProgPtr) { return Cancel ? PF_Err_INTERNAL_STRUCT_DAMAGED : PF_Err_NONE; }
 void Require(bool Ok, const char* Message) { if (!Ok) throw std::runtime_error(Message); }
+PF_Handle NewHandle(A_u_longlong Size) { return new void*(new unsigned char[static_cast<std::size_t>(Size)]{}); }
+void* LockHandle(PF_Handle H) { return *H; }
+void UnlockHandle(PF_Handle) {}
+void DisposeHandle(PF_Handle H) { delete[] static_cast<unsigned char*>(*H); delete H; }
+void CheckSequenceCopies()
+{
+    PF_UtilCallbacks Utils{};
+    Utils.host_new_handle = NewHandle; Utils.host_lock_handle = LockHandle;
+    Utils.host_unlock_handle = UnlockHandle; Utils.host_dispose_handle = DisposeHandle;
+    PF_InData In{}; In.utils = &Utils; In.effect_ref = reinterpret_cast<PF_ProgPtr>(1);
+    PF_OutData First{}, Second{};
+    Client = std::make_unique<UnrealAELink::FrameClient>();
+    Require(SequenceSetup(&In, &First, false) == PF_Err_NONE, "First AE sequence copy setup");
+    In.sequence_data = First.sequence_data; const auto FirstId = InstanceId(&In);
+    In.sequence_data = nullptr;
+    Require(SequenceSetup(&In, &Second, false) == PF_Err_NONE, "Second copy with same effect_ref setup");
+    const auto CheckRegistered = [&](std::uint64_t Id)
+    {
+        UnrealAELink::FrameStatus Status{};
+        Client->RequestFrame(Id,-1,30,Status);
+        Require(Status == UnrealAELink::FrameStatus::InvalidTime, "Another sequence copy invalidated a live registration");
+    };
+    CheckRegistered(FirstId);
+    In.sequence_data = Second.sequence_data;
+    Require(SequenceSetup(&In, &Second, true) == PF_Err_NONE, "Resetup existing second handle");
+    CheckRegistered(FirstId); const auto SecondId = InstanceId(&In); CheckRegistered(SecondId);
+    Client->Remove(SecondId); CheckRegistered(FirstId); Client->Remove(FirstId);
+    DisposeHandle(First.sequence_data); DisposeHandle(Second.sequence_data); Client.reset();
+}
 
 template<class Pixel>
 void CheckFormat(PF_PixelFormat Format, double Maximum, const UnrealAELink::BeautyFrame& Image, bool Tile, bool Half)
@@ -64,6 +93,7 @@ int main()
 {
     try
     {
+        CheckSequenceCopies();
         WorldSuite.PF_GetPixelFormat = GetFormat;
         UnrealAELink::BeautyFrame Image; Image.Width=1280; Image.Height=720; Image.Rgba.resize(1280*720*4);
         for (unsigned Y=0;Y<Image.Height;++Y) for(unsigned X=0;X<Image.Width;++X)
@@ -80,7 +110,7 @@ int main()
             CheckFormat<PF_PixelFloat>(PF_PixelFormat_ARGB128,1,Image,Tile,Half);
         }
         Require(Acquires == Releases, "Adobe suite references must balance");
-        std::puts("PASS: actual native renderer with Adobe SDK worlds: 8/16/32 bpc, row stride, crop origins, downsampling, letterbox, opaque disconnect, cancellation.");
+        std::puts("PASS: actual native renderer with Adobe SDK worlds: sequence-copy lifetime, 8/16/32 bpc, row stride, crop origins, downsampling, letterbox, opaque disconnect, cancellation.");
         return 0;
     }
     catch (const std::exception& E) { std::fprintf(stderr,"FAIL: %s\n",E.what()); return 1; }

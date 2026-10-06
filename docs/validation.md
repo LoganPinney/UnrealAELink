@@ -1,4 +1,78 @@
-# Actual validation — October 5, 2026
+# Actual validation — October 6, 2026
+
+## v0.2 deterministic Adobe host acceptance: passed
+
+`Tools/TestDeterministic.cmd` completed successfully against actual Adobe 26.5
+and Unreal 5.8.3 (`artifacts/v02-deterministic-host-final.log`). It launched a
+real transient Level Sequence with a 30/1 display rate, 24000/1 tick rate and a
+linear cube transform, applied the native effect in AE, and rendered 41 TIFFs.
+`artifacts/deterministic/UnrealAELinkDeterministicDemo.aep` is the saved project.
+
+Acceptance requires more than file count. The validator correlates every native
+AE render with a successful response, matching raw rational time, Unreal direct
+evaluation and actor transform, capture, completed GPU publication, resource
+session and Beauty sequence. Every exported TIFF's full RGB FNV hash matches
+an AE-painted native frame at its requested time. Independent pixel centroids
+match the cube's projected location. All 31 sequential frames advance, and each
+random-access frame agrees with the corresponding sequential frame within one
+pixel. Logs, TIFFs, decoded PNGs, `evidence.csv` and `request-identities.csv` are
+in `artifacts/deterministic/`.
+
+Observed actual AE callback times and evaluated states:
+
+| Probe | AE current_time/time_scale | UE frame at 30/1 | Cube Y (cm) | Pixel X |
+|---|---|---|---:|---:|
+| Known left | 0/30720 | 0 | -240 | 268.455 |
+| Known center | 30720/30720 | 30 | 0 | 639.479 |
+| Known right | 61440/30720 | 60 | 240 | 1010.527 |
+| Random 20 | 20480/30720 | 20 | -80 | 510.773 |
+| Random 3 | 3072/30720 | 3 | -216 | 305.135 |
+| Random 17 | 17408/30720 | 17 | -104 | 474.336 |
+| Random 0 | 0/30720 | 0 | -240 | 268.455 |
+| Random 29 | 29696/30720 | 29 | -8 | 626.490 |
+| Half frame | 512/30720 | 0+0.5 | -236 | 274.394 |
+| NTSC probe | 13600/23976 | 17+0.017017016 | -103.863864 | 474.330 |
+
+AE quantizes the NTSC composition to its own rational timebase. The transmitted
+pair is the actual callback time, not a fabricated 17017/30000 value. A TIFF
+suffix may round down to 00016 for this probe; the callback rational and full
+RGB hash prove the rendered time. At time zero the native/exported RGB hash is
+11933886883401695913 across repeated sequential and random requests.
+
+The user-reported failure exposed independent host sequence-data copies sharing
+one `effect_ref`. Registering by that reference canceled the render copy when
+AE reset another copy. Registrations now belong to each host sequence-data
+handle, and an SDK callback regression test verifies setup/resetup/teardown of
+one copy cannot invalidate the other. The host script also now resolves Mode by
+name (button parameters create scripting-index gaps), avoids unsupported time
+remap setters on solids, disables MFR explicitly, and uses `comp.frameDuration`
+for one-frame durations. Historical failure logs are retained in artifacts.
+
+The final v0.2 Unreal and Adobe builds succeeded (`artifacts/v02-unreal-build-final.log`, `artifacts/v02-adobe-build-final.log`). The installed .aex hash matches the final build (`artifacts/v02-install-verified.log`); deterministic acceptance was repeated with that installed binary.
+
+Preservation and complementary checks:
+
+- Original native baseline passed before edits (`artifacts/v01-baseline.log`).
+- All five native groups passed (`artifacts/v02-native-tests-final.log`):
+  WindowsIPC, WindowsGPU, WindowsAdobeFrameClient, WindowsRequests and
+  WindowsDeterministicGPU. Actual cross-process IPC/DX12 tests cover rational
+  conversion, overflow, wrong identity rejection, one outstanding request,
+  completed-image ordering, 15-second timeout, abort, duplicate coalescing,
+  immutable images, random access and rejection of unrelated/live frames.
+- Official SDK-world tests pass for ARGB8/16/32 conversion, layout, downsampling,
+  disconnected black, suite balancing, cancellation and sequence-copy lifetime.
+- Actual Unreal/native acceptance separately passed known, sequential, random,
+  half-frame and noninteger-rate requests (`artifacts/sequencer-native-final.log`).
+- The existing actual Adobe Live regression passed after the lifecycle fix
+  (`artifacts/v02-live-host-final.log`): received Beauty at 8/16/32 bpc,
+  freeze/resume, half resolution, disconnect and project saving.
+- Existing user edits to the test configuration, project/plugin descriptors and
+  Content asset were preserved. Only the plugin version fields advance to 0.2.0.
+
+The main-thread idle-hook APIs were investigated after acceptance; the findings
+and proposed 15–30 Hz throttle are in [deterministic.md](deterministic.md).
+Automatic live redraw remains unimplemented and unverified. Camera/control
+synchronization and additional passes were not added.
 
 ## Native build and runtime: passed
 

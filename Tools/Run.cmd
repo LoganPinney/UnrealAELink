@@ -3,6 +3,7 @@ setlocal
 set "LinkScript="
 if /i "%~1"=="InstallAfterEffects" set "LinkScript=InstallAfterEffects"
 if /i "%~1"=="TestAfterEffects" set "LinkScript=TestAfterEffects"
+if /i "%~1"=="TestDeterministic" set "LinkScript=TestDeterministic"
 if /i "%~1"=="BuildAfterEffects" set "LinkScript=BuildAfterEffects"
 if /i "%~1"=="TestBeautyTransfer" set "LinkScript=TestBeautyTransfer"
 if /i "%~1"=="BuildUnreal" set "LinkScript=BuildUnreal"
@@ -10,7 +11,7 @@ if /i "%~1"=="BuildNative" set "LinkScript=BuildNative"
 if /i "%~1"=="TestEditorCamera" set "LinkScript=TestEditorCamera"
 if /i "%~1"=="OpenTestProject" set "LinkScript=OpenTestProject"
 if not defined LinkScript (
-  echo Usage: Run.cmd BuildNative^|BuildUnreal^|BuildAfterEffects^|InstallAfterEffects^|TestAfterEffects^|TestBeautyTransfer^|TestEditorCamera^|OpenTestProject [options]
+  echo Usage: Run.cmd BuildNative^|BuildUnreal^|BuildAfterEffects^|InstallAfterEffects^|TestAfterEffects^|TestDeterministic^|TestBeautyTransfer^|TestEditorCamera^|OpenTestProject [options]
   exit /b 2
 )
 set "LinkPwsh="

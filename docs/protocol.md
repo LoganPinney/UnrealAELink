@@ -1,5 +1,9 @@
 # Metadata protocol v1
 
+The camera metadata below is unchanged. v0.2 deterministic rendering adds the
+independent **Request.v1** channel and **Beauty.v2** slot identity described at
+the end of this document; it does not reinterpret camera metadata.
+
 Windows x64, little endian, IEEE-754 floats/doubles. There are no pointers,
 Unreal structs, C++ bools, variable-length fields, or native-sized integers in
 the wire layout. `Shared/include/UnrealAELink/Protocol.h` is the contract; compile
@@ -98,3 +102,78 @@ independent clients. Multiple editor worlds/instances and multiple consumers
 need a future named-source/session design. A second running editor must stop its
 bridge before another editor can start one. Protocol changes require a version
 bump and different object names; do not reinterpret v1 memory as a new layout.
+
+## Deterministic request/response v1
+
+Contract: `Shared/include/UnrealAELink/RequestProtocol.h`. Named mapping:
+`Local\UnrealAELink.Request.v1`; named guard/owner mutexes:
+`Local\UnrealAELink.Request.Guard.v1` and `.Request.Owner.v1`. A 152-byte block
+uses magic `0x52504155`, version 1 and explicit block size. The first 56 bytes
+contain producer session/PID/active/heartbeat, client PID/heartbeat, mailbox
+state and reserved fields. No pointers or process-local synchronization objects
+are in shared memory. Struct size/offset assertions compile on both sides.
+
+| Request offset | Bytes | Field |
+|---:|---:|---|
+| 0 | 4 | StructBytes = 40 |
+| 4 | 4 | Version = 1 |
+| 8 | 8 | RequestId, nonzero; monotonic per AE process, QPC-seeded |
+| 16 | 8 | signed TimeValue, original AE current_time |
+| 24 | 8 | signed TimeScale, original AE time_scale, positive |
+| 32 | 4 | Width, currently 1280 |
+| 36 | 4 | Height, currently 720 |
+
+| Response offset | Bytes | Field |
+|---:|---:|---|
+| 0 | 4 | StructBytes = 56 |
+| 4 | 4 | Version = 1 |
+| 8 | 8 | matching RequestId |
+| 16 | 8 | RequestedTimeValue, unchanged |
+| 24 | 8 | RequestedTimeScale, unchanged |
+| 32 | 8 | BeautySession, shared-resource generation |
+| 40 | 8 | BeautySequence, completed GPU copy sequence/fence |
+| 48 | 4 | signed Status |
+| 52 | 4 | Reserved = 0 |
+
+Status: 0 Pending (never acknowledged), 1 Success, 2 InvalidTime,
+3 NoSequence, 4 CaptureFailed, 5 Timeout, 6 Cancelled. NoSequence/invalid requests
+produce an explicit failed response. Local timeout/cancellation also fail the AE
+callback when no response can arrive. Success requires a nonzero matching
+resource session and Beauty sequence, checked against privately received pixels.
+
+States under the mutex: Idle -> Requested -> Evaluating -> Complete -> Idle.
+The client submits only to Idle. The server consumes Requested once. It cannot
+complete another request id/time, or complete Pending work. Complete holds live
+capture until the consumer privately copies the exact frame and closes/releases
+its mailbox. Requests use raw rational identity; even equivalent fractions are
+not silently normalized in the wire records. Dimensions unsupported by this
+fixed-output prototype fail explicitly.
+
+The producer owner mutex restricts one server; PID/2-second heartbeat restricts
+one client process. Producer restart resets the block/session; an old client
+fails closed on a changed session. Reads/writes wait at most 5ms for the guard.
+Mailbox waiting happens outside the guard; no mutex spans Sequencer evaluation,
+remote waiting or GPU work. Abandoned guard invalidates the block and requires
+service restart. A dead/stalled client expires its mailbox lease. Local request
+wait is bounded at 15,000ms; late GPU work is retired before Unreal evaluates
+another request, even when the old mailbox was canceled.
+
+## Beauty control protocol v2
+
+The triple-buffer resources, shared fence, ownership and lease algorithm are
+retained. The new control mapping/guard/owner use Beauty.v2,
+Beauty.Guard.v2 and Beauty.Owner.v2 names and version 2. This prevents old v1
+binaries from misreading extended slot metadata. Camera FrameMetadata remains
+128 bytes and protocol v1. The GPU header is still 848 bytes; each slot grows
+from 152 to 176 bytes, with a 24-byte FrameIdentity appended at slot offset 152.
+The block is now 1376 bytes.
+
+FrameIdentity contains uint64 RequestId, int64 TimeValue, int64 TimeScale.
+Live frames use all zeros. Deterministic frames carry the original nonzero id
+and rational AE time. Live consumers select only id zero. Exact consumers select
+only the requested id and validate time/session/sequence against the response.
+The existing Reading pin lasts through private GPU copy/readback; AE subsequently
+owns an immutable CPU snapshot. Ready slots may appear in the control block
+before their fence completes, but receivers cannot consume them until the
+completion fence is observed. The deterministic **successful response** is
+published only after that completion, not after slot metadata publication.

@@ -1,5 +1,34 @@
 # Native After Effects prototype
 
+## v0.2 AE-authoritative deterministic rendering
+
+The new `Mode` popup defaults to `Live` and adds `Deterministic`. Existing
+Connect/Live/Source controls and their saved parameter identities remain in
+place. The Live checkbox continues to freeze/resume asynchronous mode.
+Deterministic mode uses the original AE `current_time/time_scale` in a separate
+Request.v1 mailbox, waits up to 15 seconds for the matching completed Beauty.v2
+image, and fails the host callback on timeout, abort, failed response or identity
+mismatch. It never substitutes the worker's Latest image. PreRender owns the
+immutable result; SmartRender paints that same image. Identical outstanding
+requests share one native job. No Adobe suites run on the worker.
+
+In Unreal, select one asset with `UnrealAELink.Sequence /Game/Test/MySequence`.
+In AE, use a layer starting at composition zero, 100% stretch, no Time Remapping;
+enable Connect and select Deterministic. AE zero maps to sequence absolute zero.
+MFR is intentionally unsupported: `PF_OutFlag2_SUPPORTS_THREADED_RENDERING` is
+absent in runtime/PiPL, and all deterministic requests are serialized globally.
+Disable AE Multi-Frame Rendering for deterministic exports; the host test uses
+`app.setMultiFrameRenderingConfig(false, 100)` explicitly.
+
+After building and installing both updated components, run
+`Tools/TestDeterministic.cmd`. The native fixture and actual AE Render Queue
+test check known times, 31-frame progression, frames `20,3,17,0,29`, a subframe
+and NTSC time. Logs, decoded previews and CSV identities go in
+`artifacts/deterministic/`. See [timeline details](../../docs/deterministic.md).
+Actual deterministic Adobe host acceptance passed on October 6, 2026, including
+full RGB hash matching of each exported image to its exact native render.
+The v0.1 host validation below remains historical evidence for Live.
+
 `Binaries/Win64/UnrealAELink.aex` was compiled against the official Windows
 After Effects 26.5 SDK supplied by the user. The installed application is also
 26.5 at `C:/Program Files/Adobe/Adobe After Effects 2026`. SDK files are external
@@ -12,14 +41,17 @@ Connect and Live checkboxes; fixed Beauty source; status refresh and current
 frame labels. One background GPU consumer per Adobe process serves immutable
 completed frames to effect instances. Frozen instances keep a private snapshot
 without holding a shared GPU slot. The worker calls no Adobe or Unreal API;
-host render callbacks never wait for the remote GPU or engine.
+Live host render callbacks never wait for the remote GPU or engine.
 
 SmartFX pre-render selects one immutable frame and mixes session/sequence into
 the GUID; smart-render uses that same snapshot. Legacy render also exists.
 The renderer handles Adobe ARGB8/16/32 worlds, padded rows, tile origins,
 downsampling, aspect-fit letterboxing, opaque black when disconnected and host
 cancellation. Serializable sequence data contains only an instance token;
-global/sequence teardown releases subscriptions.
+global/sequence teardown releases subscriptions. Each host sequence-data handle
+owns its registration: setup/resetup of another handle sharing the same effect
+reference cannot cancel the render copy's subscription. This lifecycle behavior
+has an SDK callback regression test and actual Render Queue coverage.
 
 ## Build and installation
 
@@ -104,14 +136,16 @@ take its lease. The metadata-only receiver uses a separate lease.
   The cache dependency flag is declared in both Global Setup and PiPL so Adobe
   accepts the frame/session GUID mix-in.
 - GUI interaction, project reopen, undo/redo and longer sessions remain
-  unverified. Export reads the latest live frame; it is not deterministic
+  unverified. v0.1 export reads the latest live frame; it is not deterministic
   timeline synchronization.
 
 ## Limits
 
 Fixed opaque 1280x720 RGBA8 LDR Beauty. 16/32-bpc conversion adds no HDR detail.
 No working-space/OCIO conversion; start with an unmanaged test comp. Adobe pulls
-frames on render requests; no forced idle redraw or deterministic export exists.
+frames on render requests; no forced idle redraw is implemented. Deterministic
+export passed the actual AE host acceptance above. The separate automatic live
+refresh investigation is recorded in [timeline details](../../docs/deterministic.md).
 Multi-frame rendering is not advertised. One Adobe process owns the GPU lease;
-aerender and interactive Adobe cannot both consume it simultaneously. Timeline
-sync, camera control/conversion, alpha, depth and other passes are outside scope.
+aerender and interactive Adobe cannot both consume it simultaneously. Camera
+control/conversion, alpha, depth and other passes are outside scope.

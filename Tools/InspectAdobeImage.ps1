@@ -1,7 +1,7 @@
 # Read Adobe-rendered test artifacts with Windows' image decoder. PNGs are
 # previews created after host rendering, never part of the GPU transport.
 function Read-LinkAdobeImage {
-    param([string]$Path, [string]$PreviewPath)
+    param([string]$Path, [string]$PreviewPath, [switch]$IncludePixels)
     Add-Type -AssemblyName System.Drawing
     $bitmap = [System.Drawing.Bitmap]::new($Path)
     try {
@@ -28,6 +28,8 @@ function Read-LinkAdobeImage {
             }
         }
         $bitmap.Save($PreviewPath, [System.Drawing.Imaging.ImageFormat]::Png)
-        return [pscustomobject]@{ Width=$bitmap.Width; Height=$bitmap.Height; Hash=$hash; ColoredSamples=$colored; Opaque=$opaque }
+        $result = [pscustomobject]@{ Width=$bitmap.Width; Height=$bitmap.Height; Hash=$hash; ColoredSamples=$colored; Opaque=$opaque; Pixels=$null }
+        if ($IncludePixels) { $result.Pixels = $pixels }
+        return $result
     } finally { $bitmap.Dispose() }
 }

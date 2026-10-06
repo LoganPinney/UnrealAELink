@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <atomic>
 using Microsoft::WRL::ComPtr;
 using namespace UnrealAELink;
 void Check(bool Ok, const char* Message) { if (!Ok) throw std::runtime_error(Message); }
@@ -74,13 +75,53 @@ int ReceiveClient()
     return 1;
 }
 
+int ReceiveRequests()
+{
+    FrameClient Client; const auto Id = Client.Register(1);
+    FrameStatus AStatus{}, BStatus{}; std::shared_ptr<const BeautyFrame> A, B;
+    std::atomic<unsigned> Waiting{0}; std::atomic<bool> Go{false};
+    auto SameRequest = [&](std::shared_ptr<const BeautyFrame>& Image, FrameStatus& Status)
+    {
+        ++Waiting; while (!Go) Sleep(1);
+        Image = Client.RequestFrame(Id,20,30,Status);
+    };
+    std::thread First(SameRequest,std::ref(A),std::ref(AStatus));
+    std::thread Second(SameRequest,std::ref(B),std::ref(BStatus));
+    while (Waiting < 2) Sleep(1); Go = true;
+    First.join(); Second.join();
+    Check(A && B && A == B && AStatus == FrameStatus::Success && BStatus == FrameStatus::Success,
+        "Identical outstanding PreRender requests must share one immutable result");
+    auto Previous = A->Identity.RequestId;
+    for (const int Time : {3,17,0,29})
+    {
+        FrameStatus Status{}; auto Image = Client.RequestFrame(Id,Time,30,Status);
+        Check(Image && Status == FrameStatus::Success && Image->Identity.RequestId > Previous,
+            "Nonsequential requests need fresh monotonically increasing ids");
+        Previous = Image->Identity.RequestId;
+        Check(Image->Identity.TimeValue == Time && Image->Identity.TimeScale == 30,
+            "GPU slot must preserve exact rational time");
+        for (std::size_t P=0;P<Image->Rgba.size();P+=4)
+            Check(Image->Rgba[P] == Time && Image->Rgba[P+1] == 73 && Image->Rgba[P+2] == 149,
+                "Requested pixels must not be substituted by live or unrelated request pixels");
+    }
+    // Server deliberately returns a GPU slot with the right id but wrong time.
+    FrameStatus Status{}; auto Bad = Client.RequestFrame(Id,99,30,Status);
+    Check(!Bad && Status == FrameStatus::CaptureFailed, "Wrong rational slot identity must fail cleanly");
+    Check(A->Identity.TimeValue == 20 && A->Rgba[0] == 20, "Earlier PreRender remains immutable after later requests");
+    return 0;
+}
+
 int main(int Argc, char** Argv)
 {
     try
     {
         if (Argc == 2 && !std::strcmp(Argv[1], "--receive")) return Receive();
         if (Argc == 2 && !std::strcmp(Argv[1], "--receive-client")) return ReceiveClient();
+        if (Argc == 2 && !std::strcmp(Argv[1], "--receive-request")) return ReceiveRequests();
         const bool TestClient = Argc == 2 && !std::strcmp(Argv[1], "--client-test");
+        const bool TestRequest = Argc == 2 && !std::strcmp(Argv[1], "--request-test");
+        RequestChannel Requests;
+        if (TestRequest) Check(Requests.Open(true) == Result::Ok, "Request server open");
         ComPtr<ID3D12Device> Device; Hr(D3D12CreateDevice(nullptr, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&Device)));
         GpuProducer Producer; Check(Producer.Open(Device.Get()) == Result::Ok, "GPU producer open failed (close any running UE bridge)");
         GpuProducer Duplicate; Check(Duplicate.Open(Device.Get()) == Result::Busy, "Duplicate producer must fail");
@@ -101,15 +142,36 @@ int main(int Argc, char** Argv)
         ComPtr<ID3D12Resource> Upload;
         Hr(Device->CreateCommittedResource(&Heap, D3D12_HEAP_FLAG_NONE, &Buffer, D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&Upload)));
         wchar_t Path[MAX_PATH]{}; Check(GetModuleFileNameW(nullptr, Path, MAX_PATH) != 0, "Executable path");
-        wchar_t Command[MAX_PATH + 32]{}; swprintf_s(Command, L"\"%s\" %s", Path, TestClient ? L"--receive-client" : L"--receive");
+        wchar_t Command[MAX_PATH + 32]{}; swprintf_s(Command, L"\"%s\" %s", Path, TestRequest ? L"--receive-request" : TestClient ? L"--receive-client" : L"--receive");
         STARTUPINFOW Startup{}; Startup.cb = sizeof(Startup); PROCESS_INFORMATION Child{};
         Check(CreateProcessW(nullptr, Command, nullptr, nullptr, 0, CREATE_NO_WINDOW, nullptr, nullptr, &Startup, &Child) != 0, "Child process");
         CloseHandle(Child.hThread);
         const auto Begin = GetTickCount64(); uint64_t Last = 0; bool Passed = false;
+        FrameRequest Request; FrameResponse Response; bool Pending = false, PublishedRequest = false;
+        unsigned RequestCount = 0, Distractors = 0; std::uint64_t ReceivedAt = 0;
         while (GetTickCount64() - Begin < 12000)
         {
             if (WaitForSingleObject(Child.hProcess, 0) == WAIT_OBJECT_0)
             { DWORD Code = 1; GetExitCodeProcess(Child.hProcess, &Code); Passed = Code == 0; break; }
+            if (TestRequest)
+            {
+                bool Deterministic = false; FrameRequest Incoming;
+                if (!Pending && Requests.Poll(Incoming, Deterministic) == Result::Ok)
+                {
+                    Request = Incoming; Pending = true; PublishedRequest = false; Distractors = 0; ReceivedAt = GetTickCount64(); ++RequestCount;
+                }
+                if (Pending && PublishedRequest)
+                {
+                    if (Producer.Fence()->GetCompletedValue() >= Response.BeautySequence)
+                    {
+                        const auto Code = Requests.Complete(Response);
+                        if (Code == Result::Ok || Code == Result::NoFrame) Pending = false;
+                    }
+                    Producer.Heartbeat(); Sleep(2); continue;
+                }
+                if (Pending && GetTickCount64()-ReceivedAt < 100) { Producer.Heartbeat(); Sleep(2); continue; }
+                if (!Pending && Deterministic) { Producer.Heartbeat(); Sleep(2); continue; }
+            }
             if (Producer.Reserve(Slot, Value, Connected) != Result::Ok) { Sleep(5); continue; }
             // One upload allocation: don't change it until our previous GPU copy retires.
             const auto WaitBegin = GetTickCount64();
@@ -120,7 +182,7 @@ int main(int Argc, char** Argv)
                 for (UINT X = 0; X < BeautyWidth; ++X)
                 {
                     auto* P = Pixels + Footprint.Offset + Y * Footprint.Footprint.RowPitch + X * 4;
-                    P[0] = static_cast<unsigned char>(Value); P[1] = 73; P[2] = 149; P[3] = 0;
+                    P[0] = static_cast<unsigned char>(TestRequest && Pending ? Request.TimeValue : Value); P[1] = 73; P[2] = 149; P[3] = 0;
                 }
             Upload->Unmap(0, nullptr); Hr(Allocator->Reset()); Hr(List->Reset(Allocator.Get(), nullptr));
             auto* Texture = Producer.Texture(Slot);
@@ -135,13 +197,31 @@ int main(int Argc, char** Argv)
             Hr(List->Close()); ID3D12CommandList* Lists[] = {List.Get()}; Queue->ExecuteCommandLists(1, Lists);
             Hr(Queue->Signal(Producer.Fence(), Value)); Last = Value;
             FrameMetadata Camera{}; Camera.FrameNumber = Value;
-            const auto Published = Producer.Publish(Slot, Value, Camera);
+            FrameIdentity Identity;
+            if (TestRequest && Pending)
+            {
+                Identity = {Request.RequestId,Request.TimeValue,Request.TimeScale};
+                // Both Live and a wrong request id are newer than old frames.
+                // The exact receiver must skip these completed distractors.
+                if (Distractors == 0) Identity = {};
+                else if (Distractors == 1) ++Identity.RequestId;
+                else if (Request.TimeValue == 99) ++Identity.TimeValue;
+            }
+            const auto Published = Producer.Publish(Slot, Value, Camera, Identity);
             Check(Published == Result::Ok || Published == Result::Busy, "GPU frame publish");
+            if (TestRequest && Pending && Published == Result::Ok && ++Distractors >= 3)
+            {
+                Response = FrameResponse{}; Response.RequestId = Request.RequestId;
+                Response.RequestedTimeValue = Request.TimeValue; Response.RequestedTimeScale = Request.TimeScale;
+                Response.BeautySession = Producer.Session(); Response.BeautySequence = Value; Response.Status = FrameStatus::Success;
+                PublishedRequest = true;
+            }
             Sleep(10);
         }
         if (!Passed && WaitForSingleObject(Child.hProcess, 0) != WAIT_OBJECT_0) { TerminateProcess(Child.hProcess, 1); WaitForSingleObject(Child.hProcess, 2000); }
         CloseHandle(Child.hProcess);
         Check(Passed, "Cross-process GPU receiver failed");
+        if (TestRequest) Check(RequestCount == 6, "Duplicate outstanding requests should cause only one producer render");
         while (Producer.Fence()->GetCompletedValue() < Last) Sleep(1);
         // Exercise the dangerous lease transition directly: a reader can depart
         // with a shared slot pinned. No old resource may be recycled afterwards.
@@ -168,6 +248,7 @@ int main(int Argc, char** Argv)
         GpuConsumer Absent; Check(Absent.Open() != Result::Ok, "Closed producer should disconnect");
         std::puts("PASS: DX12 cross-process pixels/camera pairing, pitch, alpha, ownership, pinned-reader protection, restart, disconnect.");
         if (TestClient) std::puts("PASS: Adobe worker thread, immutable snapshots, multiple subscribers, per-instance freeze/resume, disconnect.");
+        if (TestRequest) std::puts("PASS: serialized exact DX12 request frames, rational/id/session matching, outstanding deduplication, random access, no latest fallback, immutable PreRender snapshots.");
         return 0;
     }
     catch (const std::exception& E) { std::fprintf(stderr, "FAIL: %s\n", E.what()); return 1; }

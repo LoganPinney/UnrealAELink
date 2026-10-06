@@ -8,7 +8,7 @@ public class UnrealAELink : ModuleRules
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         CppStandard = CppStandardVersion.Cpp20;
         PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine" });
-        PrivateDependencyModuleNames.AddRange(new[] { "RHI", "RenderCore", "D3D12RHI" });
+        PrivateDependencyModuleNames.AddRange(new[] { "RHI", "RenderCore", "D3D12RHI", "LevelSequence", "MovieScene", "MovieSceneTracks" });
         AddEngineThirdPartyPrivateStaticDependencies(Target, "DX12");
         PublicSystemLibraries.AddRange(new[] { "d3d12.lib", "dxgi.lib" });
         if (Target.bBuildEditor)
@@ -21,6 +21,8 @@ public class UnrealAELink : ModuleRules
         PrivateDefinitions.Add("UNREAL_AE_LINK_WITH_UNREAL=1");
         ExternalDependencies.Add(Path.Combine(SharedRoot, "src", "Transport.cpp"));
         ExternalDependencies.Add(Path.Combine(SharedRoot, "src", "GpuTransport.cpp"));
+        ExternalDependencies.Add(Path.Combine(SharedRoot, "src", "RequestTransport.cpp"));
+        ExternalDependencies.Add(Path.Combine(SharedRoot, "include", "UnrealAELink", "RequestProtocol.h"));
         ExternalDependencies.Add(Path.Combine(SharedRoot, "include", "UnrealAELink", "GpuTransport.h"));
         ExternalDependencies.Add(Path.Combine(SharedRoot, "include", "UnrealAELink", "GpuProtocol.h"));
         ExternalDependencies.Add(Path.Combine(SharedRoot, "include", "UnrealAELink", "Protocol.h"));
